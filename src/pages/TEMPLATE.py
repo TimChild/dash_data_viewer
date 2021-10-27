@@ -22,7 +22,7 @@ def make_app(app: dash.Dash = None) -> dash.Dash:
     return app
 
 
-PageInfo(page_name='TEMPLATE', app_function=make_app)
+page_info = PageInfo(page_name='TEMPLATE', app_function=make_app)
 
 
 if __name__ == '__main__':
