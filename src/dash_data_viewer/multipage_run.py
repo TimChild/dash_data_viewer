@@ -1,4 +1,4 @@
-from src.multipage_util import make_multipage_app, run_app
+from src.dash_data_viewer.multipage_util import make_multipage_app, run_app
 from pages import dash_labs_templates, test_page
 
 

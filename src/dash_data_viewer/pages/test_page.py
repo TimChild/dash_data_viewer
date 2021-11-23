@@ -9,7 +9,7 @@ import dash_labs as dl
 
 from dash_extensions.enrich import DashProxy
 
-from src.multipage_util import PageInfo, MyFlexibleCallbacks
+from src.dash_data_viewer.multipage_util import PageInfo, MyFlexibleCallbacks
 
 from dataclasses import dataclass
 import numpy as np
@@ -85,5 +85,5 @@ page_info = PageInfo(page_name='Test Page', app_function=make_app)
 
 
 if __name__ == '__main__':
-    from src.multipage_util import run_app
+    from src.dash_data_viewer.multipage_util import run_app
     run_app(make_app(), debug=True, debug_port=8059)

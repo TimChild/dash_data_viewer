@@ -6,7 +6,7 @@ import dash_bootstrap_components as dbc
 import dash_html_components as html
 
 from dash_extensions.enrich import DashProxy
-from src.multipage_util import MyFlexibleCallbacks, PageInfo
+from src.dash_data_viewer.multipage_util import MyFlexibleCallbacks, PageInfo
 
 from dataclasses import dataclass
 
