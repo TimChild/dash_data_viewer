@@ -15,5 +15,7 @@ setup(
         'dash',
         'plotly',
         'pandas',
+        'dash-extensions',
+        'dash-labs',
     ]
 )
