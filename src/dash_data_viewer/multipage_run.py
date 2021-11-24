@@ -1,6 +1,5 @@
 from src.dash_data_viewer.multipage_util import make_multipage_app, run_app
-from pages import dash_labs_templates, test_page
-
+from dash_data_viewer.old_pages import test_page, dash_labs_templates
 
 if __name__ == '__main__':
     multipage_app = make_multipage_app(
