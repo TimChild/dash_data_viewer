@@ -7,7 +7,7 @@ import dash_core_components as dcc
 import dash_labs as dl
 from dash_extensions.enrich import DashProxy, ServersideOutput, ServersideOutputTransform
 
-from src.dash_data_viewer.multipage_util import PageInfo, MyFlexibleCallbacks
+from dash_data_viewer.multipage_util import PageInfo, MyFlexibleCallbacks
 
 #######
 from typing import TYPE_CHECKING
@@ -22,23 +22,33 @@ if TYPE_CHECKING:
 last_datnum = 400
 
 
-def get_last_dat(interval) -> DatHDF:
+def full_id(dat) -> str:
+    if dat:
+        for k, v in DatHandler().open_dats.items():
+            if dat == v:
+                return k
+    return None
+
+
+def get_last_dat(interval) -> str:
     global last_datnum
     dh = DatHandler()
     dat = None
     for i in range(last_datnum, 9000):
         try:
             dat = get_dat(i)
-            dh.remove(dat)
+            if dat:
+                dh.remove(dat)
         except ValueError:
             dh.clear_dats()
             dat = get_dat(i-1)
             last_datnum = i-1
             break
-    return dat
+    return full_id(dat)
 
 
-def plot_i_sense(dat: DatHDF):
+def plot_i_sense(dat_id: str):
+    dat = DatHandler().open_dats[dat_id]
     data = dat.Data.i_sense
     if data.ndim == 1:
         p1d = OneD(dat=dat)
@@ -52,6 +62,10 @@ def plot_i_sense(dat: DatHDF):
     return fig
 
 
+def test_interval(n_intervals):
+    return n_intervals
+
+
 def make_app(app: dash.Dash = None) -> dash.Dash:
     if app is None:
         app = DashProxy(transforms=[ServersideOutputTransform()], plugins=[MyFlexibleCallbacks()])
@@ -61,14 +75,15 @@ def make_app(app: dash.Dash = None) -> dash.Dash:
     dat_store = dcc.Store('dat-store')
     tpl.add_component(dat_store, 'sidebar')  # Doesn't show up, just has to be in layout somewhere
 
-    timer = dcc.Interval('interval-update-dat', interval=1000)  # To trigger self updating every 1s
+    timer = dcc.Interval('interval-update-dat', interval=10000)  # To trigger self updating every 1s
     tpl.add_component(timer, 'sidebar')  # Doesn't show up
 
     graph = dcc.Graph('graph-main')
     tpl.add_component(graph, 'First')
 
-    app.callback(ServersideOutput(dat_store, 'data'), dl.Input(timer, 'interval'))(get_last_dat)
-    app.callback(dl.Output(graph, 'figure'), dl.Input(dat_store, 'data'))
+    app.callback(dl.Output(dat_store, 'data'), dl.Input(timer, 'n_intervals'))(get_last_dat)
+    # app.callback(dl.Output(dat_store, 'data'), dl.Input(timer, 'n_intervals'))(get_last_dat)
+    app.callback(dl.Output(graph, 'figure'), dl.Input(dat_store, 'data'))(plot_i_sense)
 
     app.layout = html.Div(
         tpl.children
@@ -81,5 +96,5 @@ page_info = PageInfo(page_name='Live Viewer', app_function=make_app)
 
 
 if __name__ == '__main__':
-    from src.dash_data_viewer.multipage_util import run_app
+    from dash_data_viewer.multipage_util import run_app
     run_app(make_app(), debug=True, debug_port=8050)
