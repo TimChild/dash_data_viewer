@@ -1,15 +1,9 @@
 import dash
 import dash_bootstrap_components as dbc
 import pages_plugin
-
-from dash_extensions.enrich import DashProxy, ServersideOutputTransform
+from dash_data_viewer.cache import cache
 
 app = dash.Dash(__name__, plugins=[pages_plugin], external_stylesheets=[dbc.themes.BOOTSTRAP])
-# app = DashProxy(__name__,
-#                 plugins=[pages_plugin],
-#                 transforms=[ServersideOutputTransform()],
-#                 external_stylesheets=[dbc.themes.BOOTSTRAP])
-
 
 app.layout = dbc.Container([
     dbc.NavbarSimple([
@@ -22,4 +16,5 @@ app.layout = dbc.Container([
 
 
 if __name__ == '__main__':
+    cache.init_app(app.server)
     app.run_server(debug=True, port=8050)
