@@ -11,11 +11,12 @@ setup(
     author_email='timjchild@gmail.com',
     description='Dash Viewer for Dats (Folk lab UBC)',
     install_requires=[
-        # 'dat_analysis',
+        'dat_analysis',
         'dash',
         'plotly',
         'pandas',
-        # 'dash-extensions',
-        # 'dash-labs',
+        'dash-extensions',
+        'dash-labs',
+        'dash-bootstrap-components'
     ]
 )
