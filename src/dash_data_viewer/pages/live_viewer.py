@@ -175,13 +175,13 @@ def update_dat_info(dat_id: str) -> Component:
             field = 0
 
         md = dcc.Markdown(f'''
-        ### Dat{dat.datnum}:
-        Comments: {dat.Logs.comments}
-        Time elapsed: {dat.Logs.time_elapsed:.1f}/s
-        Time completed: {dat.Logs.time_completed}
-        Sweeprate: {dat.Logs.sweeprate:.1f}mV/s
-        Measure Freq: {dat.Logs.measure_freq:.1f}Hz
-        Mag Field (Y): {field:.3f}mT
+        ### Dat{dat.datnum}:  
+        Comments: {dat.Logs.comments}  
+        Time elapsed: {dat.Logs.time_elapsed:.1f}/s  
+        Time completed: {dat.Logs.time_completed}  
+        Sweeprate: {dat.Logs.sweeprate:.1f}mV/s  
+        Measure Freq: {dat.Logs.measure_freq:.1f}Hz  
+        Mag Field (Y): {field:.3f}mT  
         ''')
         dac_values = [
             {'DAC': k, 'Value': v} for k, v in dat.Logs.dacs.items()

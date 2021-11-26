@@ -2,6 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 import pages_plugin
 from dash_data_viewer.cache import cache
+import argparse
 
 app = dash.Dash(__name__, plugins=[pages_plugin], external_stylesheets=[dbc.themes.BOOTSTRAP])
 
@@ -17,4 +18,14 @@ app.layout = dbc.Container([
 
 if __name__ == '__main__':
     cache.init_app(app.server)
-    app.run_server(debug=True, port=8050)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-r', action=argparse.BooleanOptionalAction)
+    parser.set_defaults(remote=False)
+    args = parser.parse_args()
+    print(args.r)
+
+    if args.r:
+        app.run_server(debug=False, port=8050, host='0.0.0.0')
+    else:
+        app.run_server(debug=True, port=8050)
