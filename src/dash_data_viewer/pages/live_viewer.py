@@ -1,5 +1,6 @@
 from __future__ import annotations
 import dash
+import dash_extensions.snippets
 from dash import html, dcc, callback, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 from dash_data_viewer.cache import cache
@@ -7,16 +8,15 @@ from dash_data_viewer.cache import cache
 from dat_analysis.plotting.plotly import OneD, TwoD
 from dat_analysis.dat_object.make_dat import DatHandler, get_newest_datnum
 import dat_analysis.useful_functions as u
-from dat_analysis.analysis_tools.square_wave import get_setpoint_indexes_from_times
-from dat_analysis.dat_object.attributes.entropy import IntegrationInfo
 
 import logging
 import numpy as np
 import plotly.graph_objects as go
-from dataclasses import dataclass
-import json
 
 from typing import TYPE_CHECKING
+
+from dash_data_viewer.entropy_report import EntropyReport
+from dash_data_viewer.transition_report import TransitionReport
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
@@ -69,45 +69,40 @@ def get_dat_from_id(id: str) -> DatHDF:
     raise FileNotFoundError(f'dat with id {id} not in DH.open_dats. Should it be?')
 
 
-@cache.memoize()
-def get_entropy_out(dat: DatHDF) -> Output:
-    try:
-        out = dat.SquareEntropy.get_Outputs(name='default')
-    except u.NotFoundInHdfError:
-        start, _ = get_setpoint_indexes_from_times(dat, 0.005)
-        pp = dat.SquareEntropy.get_ProcessParams(setpoint_start=start)
-        out = dat.SquareEntropy.get_Outputs(name='default', calculate_only=False, process_params=pp)
-    return out
+@callback(
+    Output(sidebar_components.newest_datnum.id, 'data'),
+    Input(sidebar_components.update.id, 'n_intervals'),
+    State(sidebar_components.newest_datnum.id, 'data'),
+)
+def update_newest_datnum(n_intervals, latest_datnum: int):
+    new_datnum = get_newest_datnum()
+    if new_datnum != latest_datnum:
+        return new_datnum
+    return dash.no_update
 
 
 @callback(
-    Output(sidebar_components.newest_datnum.id, 'data'),
     Output(sidebar_components.dat_id.id, 'data'),
     Output(sidebar_components.button_live.id, 'color'),
-    Input(sidebar_components.update.id, 'n_intervals'),
     Input(sidebar_components.button_live.id, 'n_clicks'),
     Input(sidebar_components.datnum.id, 'value'),
-    State(sidebar_components.newest_datnum.id, 'data'),
+    Input(sidebar_components.newest_datnum.id, 'data'),
 )
-def update_newest_datnum(n_intervals, n_clicks, selected_datnum, latest_datnum: int):
+def update_current_dat_selection(n_clicks, selected_datnum, latest_datnum: int):
     """Updates the newest datnum and dat_id if there has been a change"""
     n_clicks = n_clicks if n_clicks else 0
     live_active = False if n_clicks%2 else True
 
-    new_datnum = dash.no_update
     dat_id = dash.no_update
     color = 'success' if live_active else 'danger'
 
-    if live_active:
-        new_datnum = get_newest_datnum()
-        if new_datnum != latest_datnum:
-            dat_id = initialize_dat_from_datnum(new_datnum)
-    else:
-        if selected_datnum:
-            new_datnum = selected_datnum
-            if selected_datnum != latest_datnum:
-                dat_id = initialize_dat_from_datnum(selected_datnum)
-    return new_datnum, dat_id, color
+    triggered = dash_extensions.snippets.get_triggered()
+    if live_active and triggered.id in [sidebar_components.newest_datnum.id, sidebar_components.button_live.id]:
+        dat_id = initialize_dat_from_datnum(latest_datnum)
+    elif not live_active and selected_datnum and triggered.id in \
+            [sidebar_components.datnum.id, sidebar_components.button_live.id]:
+        dat_id = initialize_dat_from_datnum(selected_datnum)
+    return dat_id, color
 
 
 @callback(
@@ -139,50 +134,30 @@ def update_graph1(dat_id: str):
 def update_analysed_out(dat_id: str) -> Component:
     if dat_id:
         dat = get_dat_from_id(dat_id)
-        p1d = OneD(dat=dat)
-        if 'square entropy' in [v.strip() for v in dat.Logs.comments.split(',')]:
-            entropy_out = get_entropy_out(dat)
+        sanitized_comments = [v.strip() for v in dat.Logs.comments.split(',')]
+        layouts = []
+        if 'square entropy' in sanitized_comments:
+            layouts.append(get_entropy_analysis_report(dat))
+        if 'transition' in sanitized_comments:
+            layouts.append(get_transition_analysis_report(dat))
+        full_layout = dbc.Container(
+            [dbc.Row(l) for l in layouts]
+        )
+        return full_layout
 
-            # Entropy signal and fit
-            fig = p1d.plot(data=entropy_out.average_entropy_signal, x=entropy_out.x, ylabel='DeltaI /nA',
-                           trace_name='Averaged Data', title=f'Dat{dat.datnum}: Average Entropy Signal',
-                           mode='markers+lines', trace_kwargs=dict(
-                    marker=dict(size=5, symbol='cross-thin'), line=dict(width=2)
-                ))
-            fit = dat.Entropy.get_fit(calculate_only=True, x=entropy_out.x, data=entropy_out.average_entropy_signal)
-            fig.add_trace(p1d.trace(data=fit.eval_fit(x=entropy_out.x), x=entropy_out.x, mode='lines',
-                                    name=f'Fit: dS={fit.best_values.dS:.2f}kB'))
-
-            # Integrated entropy
-            try:
-                int_info = dat.Entropy.get_integration_info('default')
-            except u.NotFoundInHdfError:
-                cold_fit = dat.SquareEntropy.get_fit(calculate_only=True, x=entropy_out.x, data=entropy_out.averaged,
-                                                     transition_part='cold')
-                hot_fit = dat.SquareEntropy.get_fit(calculate_only=True, x=entropy_out.x, data=entropy_out.averaged,
-                                                     transition_part='hot')
-                dT = hot_fit.best_values.theta - cold_fit.best_values.theta
-                int_info = dat.Entropy.set_integration_info(dT=dT, amp=cold_fit.best_values.amp, name='default',
-                                                            overwrite=True)
-            integrated = int_info.integrate(entropy_out.average_entropy_signal)
-            fig2 = p1d.figure(title=f'Dat{dat.datnum}: Integrated Entropy (dS={integrated[-1]:.2f}kB, dT={int_info.dT:.2f}mV)',
-                              ylabel='Entropy /kB')
-            fig2.add_trace(p1d.trace(x=entropy_out.x, data=integrated, mode='lines'))
-            p1d.add_line(fig2, np.log(2), linetype='dash')
-            p1d.add_line(fig2, np.log(3), linetype='dash')
-            p1d.add_line(fig2, 0, linetype='solid')
-
-            layout = dbc.Row([
-                dbc.Col(
-                    dcc.Graph(figure=fig), width=6
-                ),
-                dbc.Col(
-                    dcc.Graph(figure=fig2), width=6
-                )
-            ])
-
-            return layout
     return html.Div(f'No additional analysis to show')
+
+
+@cache.memoize()
+def get_transition_analysis_report(dat: DatHDF) -> Component:
+    report = TransitionReport(dat)
+    return report.full_report()
+
+
+@cache.memoize()
+def get_entropy_analysis_report(dat: DatHDF) -> Component:
+    report = EntropyReport(dat)
+    return report.full_report()
 
 
 @callback(
@@ -201,11 +176,11 @@ def update_dat_info(dat_id: str) -> Component:
 
         md = dcc.Markdown(f'''
         ### Dat{dat.datnum}:
-        Comments: {dat.Logs.comments}  
-        Time elapsed: {dat.Logs.time_elapsed:.1f}/s  
-        Time completed: {dat.Logs.time_completed}  
-        Sweeprate: {dat.Logs.sweeprate:.1f}mV/s  
-        Measure Freq: {dat.Logs.measure_freq:.1f}Hz  
+        Comments: {dat.Logs.comments}
+        Time elapsed: {dat.Logs.time_elapsed:.1f}/s
+        Time completed: {dat.Logs.time_completed}
+        Sweeprate: {dat.Logs.sweeprate:.1f}mV/s
+        Measure Freq: {dat.Logs.measure_freq:.1f}Hz
         Mag Field (Y): {field:.3f}mT
         ''')
         dac_values = [
