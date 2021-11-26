@@ -28,6 +28,7 @@ class TransitionData:
     avg_x: np.ndarray
     avg_data: np.ndarray
     avg_data_std: np.ndarray
+    is2d: bool
 
 
 class TransitionReport:
@@ -48,10 +49,12 @@ class TransitionReport:
             data = dat.Data.i_sense
 
             if data.ndim == 2:
+                is2d=True
                 avg_data, avg_data_std, avg_x = dat.Transition.get_avg_data(check_exists=False,
                                                                             return_std=True,
                                                                             return_x=True)
             else:
+                is2d=False
                 avg_data, avg_data_std, avg_x = None, None, None
 
             self.data = TransitionData(
@@ -60,6 +63,7 @@ class TransitionReport:
                 avg_data=avg_data,
                 avg_x=avg_x,
                 avg_data_std=avg_data_std,
+                is2d = is2d,
             )
 
     def generate_fit(self):
@@ -71,11 +75,11 @@ class TransitionReport:
 
     def figure_data2d(self) -> go.Figure:
         self.generate_data()
+        if not self.data.is2d:
+            raise ValueError(f'Dat{self.dat.datnum} is not 2D? (data.ndim = {self.data.data.ndim})')
+
         data = self.data
         y = self.dat.Data.y
-        if data.data.ndim != 2:
-            raise ValueError(f'Dat{self.dat.datnum} is not 2D? (data.ndim = {data.data.ndim})')
-
         fig = self.p2d.plot(data=data.data, x=data.x, y=y,
                             title=f'Dat{self.dat.datnum}: 2D Transition Data')
         return fig
@@ -104,7 +108,7 @@ class TransitionReport:
                            marker=dict(size=5, symbol='cross-thin'),
                            line=dict(width=2)
                        ))
-        fig.add_trace(p1d.trace(data=self.fit.eval_fit(x=self.data.avg_x), x=self.data.avg_x, mode='lines'))
+        fig.add_trace(p1d.trace(data=self.fit.eval_fit(x=x), x=x, mode='lines'))
         return fig
 
     def text_fit_report(self) -> dcc.Markdown:
@@ -119,18 +123,32 @@ class TransitionReport:
                             style={'white-space': 'pre', 'overflow-x': 'scroll'})
 
     def full_report(self) -> Component:
-        layout = dbc.Container([
-            dbc.Row(html.H3('Transition Report:')),
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(figure=self.figure_avg_data_and_fit())
-                ], width=4),
-                dbc.Col([
-                    dcc.Graph(figure=self.figure_data2d())
-                ], width=4),
-                dbc.Col([
-                    self.text_fit_report()
-                ], width=4),
+        self.generate_data()
+        if self.data.is2d:
+            layout = dbc.Container([
+                dbc.Row(html.H3('Transition Report:')),
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Graph(figure=self.figure_avg_data_and_fit())
+                    ], width=4),
+                    dbc.Col([
+                        dcc.Graph(figure=self.figure_data2d())
+                    ], width=4),
+                    dbc.Col([
+                        self.text_fit_report()
+                    ], width=4),
+                ])
             ])
-        ])
+        else:
+            layout = dbc.Container([
+                dbc.Row(html.H3('Transition Report:')),
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Graph(figure=self.figure_avg_data_and_fit())
+                    ], width=6),
+                    dbc.Col([
+                        self.text_fit_report()
+                    ], width=6),
+                ])
+            ])
         return layout

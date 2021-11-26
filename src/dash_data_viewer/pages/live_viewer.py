@@ -140,11 +140,12 @@ def update_analysed_out(dat_id: str) -> Component:
             layouts.append(get_entropy_analysis_report(dat))
         if 'transition' in sanitized_comments:
             layouts.append(get_transition_analysis_report(dat))
-        full_layout = dbc.Container(
-            [dbc.Row(l) for l in layouts]
-        )
-        return full_layout
-
+            
+        if layouts:
+            full_layout = dbc.Container(
+                [dbc.Row(l) for l in layouts]
+            )
+            return full_layout
     return html.Div(f'No additional analysis to show')
 
 
