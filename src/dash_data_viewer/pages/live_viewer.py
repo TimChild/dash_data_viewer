@@ -174,10 +174,10 @@ def update_analysed_out(dat_id: str) -> Component:
 
             layout = dbc.Row([
                 dbc.Col(
-                    dcc.Graph(figure=fig)
+                    dcc.Graph(figure=fig), width=6
                 ),
                 dbc.Col(
-                    dcc.Graph(figure=fig2)
+                    dcc.Graph(figure=fig2), width=6
                 )
             ])
 
@@ -202,11 +202,11 @@ def update_dat_info(dat_id: str) -> Component:
         md = dcc.Markdown(f'''
         ### Dat{dat.datnum}:
         Comments: {dat.Logs.comments}  
-        Time elapsed: {dat.Logs.time_elapsed}/s  
+        Time elapsed: {dat.Logs.time_elapsed:.1f}/s  
         Time completed: {dat.Logs.time_completed}  
         Sweeprate: {dat.Logs.sweeprate:.1f}mV/s  
-        Measure Freq: {dat.Logs.measure_freq}Hz  
-        Mag Field (Y): {field}mT
+        Measure Freq: {dat.Logs.measure_freq:.1f}Hz  
+        Mag Field (Y): {field:.3f}mT
         ''')
         dac_values = [
             {'DAC': k, 'Value': v} for k, v in dat.Logs.dacs.items()
@@ -249,7 +249,7 @@ def sidebar_layout() -> Component:
     global sidebar_components
     s = sidebar_components
     layout_ = html.Div([
-        s.update,
+        s.update,  # Invisible timer
         s.newest_datnum,  # Invisible
         s.dat_id,  # Invisible
         s.button_live,
