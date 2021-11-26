@@ -1,5 +1,6 @@
 from __future__ import annotations
 import dash
+import dash_extensions.snippets
 from dash import html, dcc, callback, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 from dash_data_viewer.cache import cache
@@ -80,34 +81,40 @@ def get_entropy_out(dat: DatHDF) -> Output:
     return out
 
 
+
 @callback(
     Output(sidebar_components.newest_datnum.id, 'data'),
-    Output(sidebar_components.dat_id.id, 'data'),
-    Output(sidebar_components.button_live.id, 'color'),
     Input(sidebar_components.update.id, 'n_intervals'),
-    Input(sidebar_components.button_live.id, 'n_clicks'),
-    Input(sidebar_components.datnum.id, 'value'),
     State(sidebar_components.newest_datnum.id, 'data'),
 )
-def update_newest_datnum(n_intervals, n_clicks, selected_datnum, latest_datnum: int):
+def update_newest_datnum(n_intervals, latest_datnum: int):
+    new_datnum = get_newest_datnum()
+    if new_datnum != latest_datnum:
+        return new_datnum
+    return dash.no_update
+
+
+@callback(
+    Output(sidebar_components.dat_id.id, 'data'),
+    Output(sidebar_components.button_live.id, 'color'),
+    Input(sidebar_components.button_live.id, 'n_clicks'),
+    Input(sidebar_components.datnum.id, 'value'),
+    Input(sidebar_components.newest_datnum.id, 'data'),
+)
+def update_current_dat_selection(n_clicks, selected_datnum, latest_datnum: int):
     """Updates the newest datnum and dat_id if there has been a change"""
     n_clicks = n_clicks if n_clicks else 0
     live_active = False if n_clicks%2 else True
 
-    new_datnum = dash.no_update
     dat_id = dash.no_update
     color = 'success' if live_active else 'danger'
 
-    if live_active:
-        new_datnum = get_newest_datnum()
-        if new_datnum != latest_datnum:
-            dat_id = initialize_dat_from_datnum(new_datnum)
-    else:
-        if selected_datnum:
-            new_datnum = selected_datnum
-            if selected_datnum != latest_datnum:
-                dat_id = initialize_dat_from_datnum(selected_datnum)
-    return new_datnum, dat_id, color
+    triggered = dash_extensions.snippets.get_triggered()
+    if live_active and triggered.id == sidebar_components.newest_datnum.id:
+        dat_id = initialize_dat_from_datnum(latest_datnum)
+    elif not live_active and selected_datnum and triggered.id in [sidebar_components.datnum.id, sidebar_components.button_live.id]:
+        dat_id = initialize_dat_from_datnum(selected_datnum)
+    return dat_id, color
 
 
 @callback(
