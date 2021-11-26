@@ -112,7 +112,9 @@ def update_current_dat_selection(n_clicks, selected_datnum, latest_datnum: int):
 def update_graph1(dat_id: str):
     if dat_id is not None:
         dat = get_dat_from_id(dat_id)
-        data = dat.Data.i_sense
+        data = dat.Data.get_data('i_sense', default=False)
+        if data is False:
+            data = dat.Data.get_data(dat.Data.data_keys[0])
         if data.ndim == 1:
             p1d = OneD(dat=dat)
             fig = p1d.plot(data)
