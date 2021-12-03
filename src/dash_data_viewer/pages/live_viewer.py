@@ -112,7 +112,9 @@ def update_current_dat_selection(n_clicks, selected_datnum, latest_datnum: int):
 def update_graph1(dat_id: str):
     if dat_id is not None:
         dat = get_dat_from_id(dat_id)
-        data = dat.Data.i_sense
+        data = dat.Data.get_data('i_sense', default=False)
+        if data is False:
+            data = dat.Data.get_data(dat.Data.data_keys[0])
         if data.ndim == 1:
             p1d = OneD(dat=dat)
             fig = p1d.plot(data)
@@ -140,11 +142,12 @@ def update_analysed_out(dat_id: str) -> Component:
             layouts.append(get_entropy_analysis_report(dat))
         if 'transition' in sanitized_comments:
             layouts.append(get_transition_analysis_report(dat))
-        full_layout = dbc.Container(
-            [dbc.Row(l) for l in layouts]
-        )
-        return full_layout
-
+            
+        if layouts:
+            full_layout = dbc.Container(
+                [dbc.Row(l) for l in layouts]
+            )
+            return full_layout
     return html.Div(f'No additional analysis to show')
 
 
@@ -175,13 +178,13 @@ def update_dat_info(dat_id: str) -> Component:
             field = 0
 
         md = dcc.Markdown(f'''
-        ### Dat{dat.datnum}:
+        ### Dat{dat.datnum}:  
         Comments: {dat.Logs.comments}  
-        Time elapsed: {dat.Logs.time_elapsed}/s  
+        Time elapsed: {dat.Logs.time_elapsed:.1f}/s  
         Time completed: {dat.Logs.time_completed}  
         Sweeprate: {dat.Logs.sweeprate:.1f}mV/s  
-        Measure Freq: {dat.Logs.measure_freq}Hz  
-        Mag Field (Y): {field}mT
+        Measure Freq: {dat.Logs.measure_freq:.1f}Hz  
+        Mag Field (Y): {field:.3f}mT  
         ''')
         dac_values = [
             {'DAC': k, 'Value': v} for k, v in dat.Logs.dacs.items()
@@ -224,7 +227,7 @@ def sidebar_layout() -> Component:
     global sidebar_components
     s = sidebar_components
     layout_ = html.Div([
-        s.update,
+        s.update,  # Invisible timer
         s.newest_datnum,  # Invisible
         s.dat_id,  # Invisible
         s.button_live,
