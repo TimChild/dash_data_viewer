@@ -3,6 +3,8 @@ import dash
 from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
 
+from dash_data_viewer.layout_util import label_component
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -41,7 +43,6 @@ class SidebarComponents(object):
 
 
 
-
 # Initialize the components ONCE here.
 main_components = MainComponents()
 sidebar_components = SidebarComponents()
@@ -50,7 +51,20 @@ sidebar_components = SidebarComponents()
 def main_layout() -> Component:
     global main_components
     m = main_components
+    transition_graphs = dbc.Row([
+        dbc.Col(m.graph_2d_transition, width=6), dbc.Col(m.graph_average_transition, width=6)
+    ])
+    entropy_graphs = dbc.Row([
+        dbc.Row([dbc.Col(m.graph_2d_entropy, width=6), dbc.Col(m.graph_average_entropy, width=6)]),
+        dbc.Row([dbc.Col(m.graph_integrated, width=6), dbc.Col(m.graph_square_wave, width=6)]),
+    ])
+    entropy_info = dbc.Row([
+        html.Div(f'No info to show yet')
+    ])
     layout_ = html.Div([
+        transition_graphs,
+        entropy_graphs,
+        entropy_info,
     ])
     return layout_
 
@@ -58,7 +72,10 @@ def main_layout() -> Component:
 def sidebar_layout() -> Component:
     global sidebar_components
     s = sidebar_components
+    square_processing = dbc.Row()
     layout_ = html.Div([
+        label_component(s.input_datnum, 'Datnum:'),
+
     ])
     return layout_
 
