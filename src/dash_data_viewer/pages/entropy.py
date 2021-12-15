@@ -2,6 +2,7 @@ from __future__ import annotations
 import dash
 from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
+from dash_data_viewer.layout_util import label_component
 
 # from dash_data_viewer.layout_util import label_component
 
