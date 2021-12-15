@@ -120,3 +120,4 @@ dmypy.json
 src/dash_data_viewer/pages/file_system_store/
 src/dash_data_viewer/file_system_store/
 src/dash_data_viewer/cache-directory/
+cache-directory/
