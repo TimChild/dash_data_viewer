@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from dash_data_viewer.entropy_report import EntropyReport
 from dash_data_viewer.transition_report import TransitionReport
+# from dash_data_viewer.layout_util import label_component
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
@@ -24,6 +25,18 @@ if TYPE_CHECKING:
     from dat_analysis.dat_object.attributes.square_entropy import Output
 
 DH = DatHandler()  # This is a singleton, so any thread in the same process should get the same DatHandler() I think!
+
+def label_component(component, label: str) -> Component:
+    return dbc.Row(
+        [
+            dbc.Label(label, html_for=label, width=4),
+            dbc.Col(
+                component,
+                width=8
+            ),
+        ],
+        # className="mb-3",
+    )
 
 
 class MainComponents(object):
@@ -198,18 +211,6 @@ def update_dat_info(dat_id: str) -> Component:
         ])
     return html.Div()
 
-
-def label_component(component, label: str) -> Component:
-    return dbc.Row(
-        [
-            dbc.Label(label, html_for=label, width=4),
-            dbc.Col(
-                component,
-                width=8
-            ),
-        ],
-        # className="mb-3",
-    )
 
 
 def main_layout() -> Component:

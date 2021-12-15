@@ -3,7 +3,7 @@ import dash
 from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
 
-from dash_data_viewer.layout_util import label_component
+# from dash_data_viewer.layout_util import label_component
 
 from typing import TYPE_CHECKING
 
@@ -104,4 +104,5 @@ if __name__ == '__main__':
     app.layout = layout()
     app.run_server(debug=True, port=8052)
 else:
-    dash.register_page(__name__)
+    # dash.register_page(__name__)
+    pass
