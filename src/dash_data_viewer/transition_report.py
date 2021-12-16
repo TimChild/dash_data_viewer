@@ -32,7 +32,7 @@ class TransitionData:
 
 
 class TransitionReport:
-    """Class for generating dash components which summarize entropy"""
+    """Class for generating dash components which summarize transition"""
 
     def __init__(self, dat: DatHDF):
         self.dat = dat
@@ -49,12 +49,12 @@ class TransitionReport:
             data = dat.Data.i_sense
 
             if data.ndim == 2:
-                is2d=True
+                is2d = True
                 avg_data, avg_data_std, avg_x = dat.Transition.get_avg_data(check_exists=False,
                                                                             return_std=True,
                                                                             return_x=True)
             else:
-                is2d=False
+                is2d = False
                 avg_data, avg_data_std, avg_x = None, None, None
 
             self.data = TransitionData(
@@ -63,7 +63,7 @@ class TransitionReport:
                 avg_data=avg_data,
                 avg_x=avg_x,
                 avg_data_std=avg_data_std,
-                is2d = is2d,
+                is2d=is2d,
             )
 
     def generate_fit(self):
@@ -119,7 +119,7 @@ class TransitionReport:
         }
         strings = [f'{k}: {d["val"]:.3g}{PM}{d["std"]:.2g} (Init: {d["init"]:.1g})' for k, d in param_info.items()]
         text = '  \n'.join(strings)
-        return dcc.Markdown(f'#### Dat{self.dat.datnum} Transition Fit Params \n'+text,
+        return dcc.Markdown(f'#### Dat{self.dat.datnum} Transition Fit Params \n' + text,
                             style={'white-space': 'pre', 'overflow-x': 'scroll'})
 
     def full_report(self) -> Component:
