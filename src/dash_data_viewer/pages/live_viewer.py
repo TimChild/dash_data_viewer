@@ -3,6 +3,8 @@ import dash
 import dash_extensions.snippets
 from dash import html, dcc, callback, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
+from dataclasses import dataclass
+
 from dash_data_viewer.cache import cache
 
 from dat_analysis.plotting.plotly import OneD, TwoD
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
 
 DH = DatHandler()  # This is a singleton, so any thread in the same process should get the same DatHandler() I think!
 
+
 def label_component(component, label: str) -> Component:
     return dbc.Row(
         [
@@ -44,6 +47,7 @@ class MainComponents(object):
     graph1 = dcc.Graph(id='live-graph-1')
     analysed_out = html.Div(id='live-div-anlaysed-out')  # Can be filled will multiple components however is useful
     dat_info_text = html.Div(id='live-div-dat-info-text')
+    data_info_text = html.Div(id='live-div-dataInfoText')
 
 
 class SidebarComponents(object):
@@ -157,8 +161,8 @@ def update_analysed_out(dat_id: str) -> Component:
             layouts.append(get_transition_analysis_report(dat))
             
         if layouts:
-            full_layout = dbc.Container(
-                [dbc.Row(l) for l in layouts]
+            full_layout = html.Div(
+                [dbc.Row(dbc.Col(l)) for l in layouts],
             )
             return full_layout
     return html.Div(f'No additional analysis to show')
@@ -191,7 +195,6 @@ def update_dat_info(dat_id: str) -> Component:
             field = 0
 
         md = dcc.Markdown(f'''
-        ### Dat{dat.datnum}:  
         Comments: {dat.Logs.comments}  
         Time elapsed: {dat.Logs.time_elapsed:.1f}/s  
         Time completed: {dat.Logs.time_completed}  
@@ -204,13 +207,57 @@ def update_dat_info(dat_id: str) -> Component:
         ]
         table = dash_table.DataTable(data=dac_values, columns=[{'name': k, 'id': k} for k in ['DAC', 'Value']])
 
-        return dbc.Container([
-            dbc.Row([
-                dbc.Col(md), dbc.Col(table, width=4)
-            ])
+        return dbc.Card([
+            dbc.CardHeader(html.H3(f'Dat{dat.datnum} Info Summary:')),
+            dbc.CardBody(
+                dbc.Row([
+                    dbc.Col(md), dbc.Col(table, width=4)
+                ])
+            ),
         ])
     return html.Div()
 
+
+@callback(
+    Output(main_components.data_info_text.id, 'children'),
+    Input(sidebar_components.dat_id.id, 'data'),
+)
+def update_data_shapes(dat_id: str) -> Component:
+    """Returns Data Info"""
+
+    @dataclass
+    class DataInfo:
+        name: str
+        shape: tuple
+        min: float
+        max: float
+
+    if dat_id is not None:
+        dat = get_dat_from_id(dat_id)
+        infos: list[DataInfo] = []
+        for k in dat.Data.keys:
+            data = dat.Data.get_data(k)
+            shape = data.shape
+            min_ = np.nanmin(data)
+            max_ = np.nanmax(data)
+            infos.append(DataInfo(
+                name=k,
+                shape=shape,
+                min=min_,
+                max=max_,
+            ))
+
+        data_info = [
+            {'Name': info.name, 'Shape': f'{info.shape}', 'Min': f'{info.min:.4f}', 'Max': f'{info.max:.4f}'}
+            for info in infos
+        ]
+        table = dash_table.DataTable(data=data_info, columns=[{'name': k, 'id': k} for k in ['Name', 'Shape', 'Min', 'Max']])
+
+        return dbc.Card([
+            dbc.CardHeader(dbc.Col(html.H3(f'Dat{dat.datnum} Data Summary:'))),
+            dbc.CardBody(table),
+        ])
+    return html.Div()
 
 
 def main_layout() -> Component:
@@ -220,6 +267,7 @@ def main_layout() -> Component:
         m.graph1,
         m.dat_info_text,
         m.analysed_out,
+        m.data_info_text,
     ])
     return layout_
 
