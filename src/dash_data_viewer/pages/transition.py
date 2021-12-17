@@ -68,9 +68,13 @@ class SidebarComponents(object):
                                    )
     inp_datnums_start = dbc.Input(id='transition-inp-datstart', type='number', placeholder='Start', debounce=True,
                                   persistence=True, persistence_type='local')
-    inp_datnums_fin = dbc.Input(id='transition-inp-datfin', type='number', placeholder='Finish', debounce=True,
-                                persistence=True, persistence_type='local')
-    but_datnums_add = dbc.Button(id='transition-but-datadd', children='Add', style={'height': '80%', 'width': '80%'})
+    inp_datnums_stop = dbc.Input(id='transition-inp-datStop', type='number', placeholder='Stop', debounce=True,
+                                 persistence=True, persistence_type='local')
+    inp_datnums_step = dbc.Input(id='transition-inp-datStep', type='number', placeholder='Step', debounce=True,
+                                 persistence=True, persistence_type='local')
+
+    but_datnums_add = dbc.Button(id='transition-but-datadd', children='Add')
+    but_datnums_remove = dbc.Button(id='transition-but-datremove', children='Remove', color='danger')
 
 
 # Initialize the components ONCE here.
@@ -145,21 +149,26 @@ def get_transition_row_fits(datnum: int) -> Optional[RowFitInfo]:
     Output(sidebar_components.dd_datnums.id, 'options'),
     Output(sidebar_components.dd_datnums.id, 'value'),
     Input(sidebar_components.but_datnums_add.id, 'n_clicks'),
+    Input(sidebar_components.but_datnums_remove.id, 'n_clicks'),
     State(sidebar_components.inp_datnums_start.id, 'value'),
-    State(sidebar_components.inp_datnums_fin.id, 'value'),
+    State(sidebar_components.inp_datnums_stop.id, 'value'),
+    State(sidebar_components.inp_datnums_step.id, 'value'),
     State(sidebar_components.dd_datnums.id, 'options'),
     State(sidebar_components.dd_datnums.id, 'value'),
-
 )
-def update_datnums(clicks: Optional[int], start: Optional[int], fin: Optional[int], prev_options: Optional[List[dict]],
+def update_datnums(add_clicks: Optional[int], remove_clicks: Optional[int],
+                   start: Optional[int], stop: Optional[int], step: Optional[int],
+                   prev_options: Optional[List[dict]],
                    current_datnums: Optional[List[int]]) -> \
         tuple[list[dict], list[int]]:
     """
     Update the list of datnums in the selectable dropdown thing and what is currently selected
     Args:
-        clicks ():
+        add_clicks ():
+        remove_clicks ():
         start ():
-        fin ():
+        stop ():
+        step ():
         prev_options ():
         current_datnums ():
 
@@ -170,17 +179,25 @@ def update_datnums(clicks: Optional[int], start: Optional[int], fin: Optional[in
     current_datnums = current_datnums if current_datnums else []
 
     triggered = dash_extensions.snippets.get_triggered()
-    logging.info(f'triggered = {triggered}')
-    logging.info(f'current_list = {current_datnums}')
-    logging.info(f'prev_opts = {prev_options}')
-    if clicks and start and fin:
-        vals = range(start, fin + 1)
+    if add_clicks and start:
+        step = step if step else 1
+        stop = stop if stop and stop > start else start
+        vals = range(start, stop + 1, step)
         prev_opts_keys = [opt['value'] for opt in prev_options]
         for v in vals:
-            if v not in prev_opts_keys:
-                prev_options.append({'label': v, 'value': v})
-            if v not in current_datnums:
-                current_datnums.append(v)
+            if triggered.id == sidebar_components.but_datnums_add.id:
+                if v not in prev_opts_keys:
+                    prev_options.append({'label': v, 'value': v})
+                if v not in current_datnums:
+                    current_datnums.append(v)
+            elif triggered.id == sidebar_components.but_datnums_remove.id:
+                prev_options = [p for p in prev_options if p['value'] not in vals]
+                current_datnums = [d for d in current_datnums if d not in vals]
+            else:
+                logging.info(
+                    f'trig.id = {triggered.id}, but.id = {sidebar_components.but_datnums_add.id}, trig==but: {triggered.id == sidebar_components.but_datnums_add.id}')
+                logging.warning(f'Unexpected trigger')
+
         prev_options = [opts for opts in sorted(prev_options, key=lambda item: item['value'])]
         current_datnums = list(sorted(current_datnums))
     return prev_options, current_datnums
@@ -339,8 +356,11 @@ def sidebar_layout() -> Component:
         dbc.CardHeader(dbc.Col(html.H3('Dat Manager'))),
         dbc.CardBody([
             dbc.Row([
-                vertical_label('Start', s.inp_datnums_start), vertical_label('Finish', s.inp_datnums_fin),
-                dbc.Col(s.but_datnums_add)
+                vertical_label('Start', s.inp_datnums_start),
+                vertical_label('Stop', s.inp_datnums_stop),
+                vertical_label('Step', s.inp_datnums_step),
+                dbc.Col([s.but_datnums_add, s.but_datnums_remove])
+
             ]),
             dbc.Row([
                 dbc.Col(s.dd_datnums)
@@ -379,7 +399,7 @@ def layout():
 if __name__ == '__main__':
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
     app.layout = layout()
-    app.run_server(debug=True, port=8053)
+    app.run_server(debug=True, port=8053, threaded=True)
 else:
     dash.register_page(__name__)
     pass
