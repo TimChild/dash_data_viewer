@@ -200,7 +200,7 @@ def plot_per_row_fit_params(datnum: int) -> Component:
                 fig.add_trace(p1d.trace(
                     x=dat.Data.y,
                     data=[p.value for p in key_params],
-                    data_err=[p.stderr for p in key_params],
+                    # data_err=[p.stderr for p in key_params],
                     mode='markers+lines',
                 ))
                 graphs.append(fig)
@@ -262,5 +262,5 @@ if __name__ == '__main__':
     app.layout = layout()
     app.run_server(debug=True, port=8053)
 else:
-    # dash.register_page(__name__)
+    dash.register_page(__name__)
     pass
