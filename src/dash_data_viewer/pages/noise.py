@@ -186,8 +186,13 @@ def update_graph(datnum, datnum_final, datnum_choice, specdropdown, lineardb, ps
 
     p1d = OneD(dat=None)
     p1d.MAX_POINTS = 10000
-    fig = p1d.figure(title=f'Power Spectrum', ylabel=y_label, xlabel='Frequency Hz')
 
+    if lineardb == 1:
+        fig = p1d.figure(title=f'Power Spectrum', ylabel=y_label, xlabel='Frequency Hz')
+    else:
+        fig = p1d.figure(title=f'Power Spectrum', ylabel=y_label, xlabel='Frequency Hz')
+        fig.update_xaxes(type="log")
+        fig.update_yaxes(type="log")
     # If none of the dats are good then return empty figure
     if len(dat_vals) == 0:
         return go.Figure()
@@ -212,7 +217,7 @@ def update_graph(datnum, datnum_final, datnum_choice, specdropdown, lineardb, ps
                 psd_welch_pxx = psd_welch[1]
                 freq_welch = psd_welch[0]
                 if lineardb == 1:   
-                    psd_welch_pxx = dBScale(psd_welch_pxx)   
+                    psd_welch_pxx = dBScale(psd_welch_pxx) 
                 fig.add_trace(p1d.trace(x=freq_welch, data=psd_welch_pxx, mode='lines', name=f'Dat{dat_val}: Welch'))
             
         return fig
