@@ -125,30 +125,33 @@ class TransitionReport:
     def full_report(self) -> Component:
         self.generate_data()
         if self.data.is2d:
-            layout = dbc.Container([
-                dbc.Row(html.H3('Transition Report:')),
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Graph(figure=self.figure_avg_data_and_fit())
-                    ], width=4),
-                    dbc.Col([
-                        dcc.Graph(figure=self.figure_data2d())
-                    ], width=4),
-                    dbc.Col([
-                        self.text_fit_report()
-                    ], width=4),
-                ])
+            layout = dbc.Card([
+                dbc.CardHeader(html.H3('Transition Report:')),
+                dbc.CardBody(
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Graph(figure=self.figure_avg_data_and_fit())
+                        ], width=4),
+                        dbc.Col([
+                            dcc.Graph(figure=self.figure_data2d())
+                        ], width=4),
+                        dbc.Col([
+                            self.text_fit_report()
+                        ], width=4),
+                    ])
+                )
             ])
         else:
-            layout = dbc.Container([
-                dbc.Row(html.H3('Transition Report:')),
-                dbc.Row([
-                    dbc.Col([
-                        dcc.Graph(figure=self.figure_avg_data_and_fit())
-                    ], width=6),
-                    dbc.Col([
-                        self.text_fit_report()
-                    ], width=6),
-                ])
+            layout = dbc.Card([
+                dbc.CardHeader(html.H3('Transition Report:')),
+                dbc.CardBody(
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Graph(figure=self.figure_avg_data_and_fit())
+                        ], width=6),
+                        dbc.Col([
+                            self.text_fit_report()
+                        ], width=6),
+                    ])),
             ])
         return layout

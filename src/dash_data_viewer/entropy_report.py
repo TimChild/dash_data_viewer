@@ -127,18 +127,20 @@ class EntropyReport:
         return fig
 
     def full_report(self) -> Component:
-        layout = dbc.Container([
-            dbc.Row(html.H3('Entropy Report:')),
-            dbc.Row([
-                dbc.Col([
-                    dcc.Graph(figure=self.figure_signal_and_fit())
-                ], width=4),
-                dbc.Col([
-                    dcc.Graph(figure=self.figure_integrated())
-                ], width=4),
-                dbc.Col([
-                    dcc.Graph(figure=self.figure_square_wave())
-                ], width=4),
-            ])
+        layout = dbc.Card([
+            dbc.CardHeader(html.H3('Entropy Report:')),
+            dbc.CardBody(
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Graph(figure=self.figure_signal_and_fit())
+                    ], width=4),
+                    dbc.Col([
+                        dcc.Graph(figure=self.figure_integrated())
+                    ], width=4),
+                    dbc.Col([
+                        dcc.Graph(figure=self.figure_square_wave())
+                    ], width=4),
+                ])
+            ),
         ])
         return layout
