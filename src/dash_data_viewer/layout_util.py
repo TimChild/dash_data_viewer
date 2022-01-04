@@ -19,3 +19,21 @@ def label_component(component, label: str) -> Component:
         ],
         # className="mb-3",
     )
+
+
+def vertical_label(label: str, component: Component, **kwargs) -> dbc.Col:
+    """
+    Add a label above a component wrapped in a column and two rows
+    Args:
+        label ():
+        component ():
+
+    Returns:
+
+    """
+    return dbc.Col([
+        dbc.Row(dbc.Col(html.H4(label), width=12)),
+        dbc.Row(dbc.Col(component, width=12)),
+    ],
+        **kwargs
+    )
