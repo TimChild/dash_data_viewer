@@ -11,10 +11,9 @@ if TYPE_CHECKING:
 def label_component(component, label: str) -> Component:
     return dbc.Row(
         [
-            dbc.Label(html.H4(label), html_for=label, width=4),
+            dbc.Col(dbc.Label(html.H4(label), html_for=label)),
             dbc.Col(
                 component,
-                width=8
             ),
         ],
         # className="mb-3",
