@@ -8,19 +8,60 @@ import logging
 from .layout_util import vertical_label
 
 
+class TemplateAIO(html.Div):
+    """
+    DESCRIPTION
+
+    Examples:
+        # Example init
+        ex = TemplateAIO()
+
+        # Example use of any main components
+        @callback(
+            Input(ex.store_id, 'data'),
+            Output(ex.val_id, 'value'),
+        )
+        def foo(data: list[str]) -> str:  # Showing type of arguments
+    """
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def input(aio_id):
+            return {
+                'component': 'TemplateAIO',
+                'subcomponent': f'input',
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, aio_id=None):
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+
+        super().__init__(children=[])  # html.Div contains layout
+
+    # UNCOMMENT -- This callback is run when module is imported regardless of use
+    # @staticmethod
+    # @callback(
+    # )
+    # def function():
+    #     pass
+
+
 class DatnumPickerAIO(html.Div):
     """
     A group of buttons with custom text where one can be selected at a time and returns either the text or a specific
     value
 
     Examples:
-        picker = DatnumPickerAIO()  # Requires no arguments to instantiate (but can take aio_id)
+        picker = DatnumPickerAIO(aio_id='testpage-datpicker')  # Fixed ID required for persistence to work
 
         @callback(Input(picker.dd_id, 'value'))  # Selected Datnums are accessible from the dd.value
         def foo(datnums: list):
             return datnums
-
-        app.layout = picker  # picker is a self contained layout
 
     """
 
@@ -45,23 +86,30 @@ class DatnumPickerAIO(html.Div):
             }
 
         @staticmethod
-        def dropdown(aio_id: str):
+        def dropdown(aio_id):
             return {
                 'component': 'DatnumPickerAIO',
                 'subcomponent': f'dropdown',
                 'aio_id': aio_id,
             }
 
+        @staticmethod
+        def options_store(aio_id):
+            return {
+                'component': 'DatnumPickerAIO',
+                'subcomponent': f'opts',
+                'aio_id': aio_id,
+            }
+
     # Make the ids class a public class
     ids = ids
 
-    def __init__(self, aio_id=None, allow_multiple=True):
-        if aio_id is None:
-            aio_id = str(uuid.uuid4())
+    def __init__(self, aio_id, allow_multiple=True):
+        self.dd_id = self.ids.dropdown(aio_id)   # For easy access to this component ('value' contains selected dats)
 
-        multi = 'true' if allow_multiple else 'false'
-
-        self.dd_id = self.ids.dropdown(aio_id)  # For easy access to this component ('value' contains selected dats)
+        opts_store = dcc.Store(id=self.ids.options_store(aio_id),
+                               data=dict(multi=allow_multiple)
+                               )
 
         input_infos = {
             'start': dict(component=None, label='Start', placeholder='Start'),
@@ -108,7 +156,7 @@ class DatnumPickerAIO(html.Div):
                 ])
             ])
 
-        super().__init__(children=[layout])  # html.Div contains layout
+        super().__init__(children=[opts_store, layout])  # html.Div contains layout
 
     @staticmethod
     @callback(
@@ -121,12 +169,13 @@ class DatnumPickerAIO(html.Div):
         State(ids.input(MATCH, 'step'), 'value'),
         State(ids.dropdown(MATCH), 'options'),
         State(ids.dropdown(MATCH), 'value'),
+        State(ids.options_store(MATCH), 'data')
     )
     def update_datnums(add_clicks: Optional[int], remove_clicks: Optional[int],
                        start: Optional[int], stop: Optional[int], step: Optional[int],
                        prev_options: Optional[List[dict]],
-                       current_datnums: Optional[List[int]]) -> \
-            tuple[list[dict], list[int]]:
+                       current_datnums: Optional[List[int]],
+                       options: dict):
         """
         Update the list of datnums in the selectable dropdown thing and what is currently selected
         Args:
@@ -137,13 +186,15 @@ class DatnumPickerAIO(html.Div):
             step ():
             prev_options ():
             current_datnums ():
+            options (): Additional options that are stored on creation of AIO
 
         Returns:
 
         """
-        prev_options = prev_options if prev_options else []
-        current_datnums = current_datnums if current_datnums else []
         logging.info(f'Current datnums: {current_datnums}')
+        prev_options = prev_options if prev_options else []
+        if options['multi'] is True:
+            current_datnums = current_datnums if current_datnums else []
 
         triggered = get_triggered()
         if add_clicks and start:
@@ -151,21 +202,85 @@ class DatnumPickerAIO(html.Div):
             stop = stop if stop and stop > start else start
             vals = range(start, stop + 1, step)
             prev_opts_keys = [opt['value'] for opt in prev_options]
-            for v in vals:
-                if triggered.id['key'] == 'add':
+            if triggered.id['key'] == 'add':
+                for v in vals:
                     if v not in prev_opts_keys:
                         prev_options.append({'label': v, 'value': v})
-                    if v not in current_datnums:
-                        current_datnums.append(v)
-                elif triggered.id['key'] == 'remove':
-                    prev_options = [p for p in prev_options if p['value'] not in vals]
+                    if options['multi'] is True:
+                        if v not in current_datnums:
+                            current_datnums.append(v)
+            elif triggered.id['key'] == 'remove':
+                prev_options = [p for p in prev_options if p['value'] not in vals]
+                if options['multi'] is True:
                     current_datnums = [d for d in current_datnums if d not in vals]
                 else:
-                    logging.warning(f'Unexpected trigger. trig.id = {triggered.id}')
+                    if current_datnums in vals:
+                        current_datnums = None
+            else:
+                logging.warning(f'Unexpected trigger. trig.id = {triggered.id}')
 
             prev_options = [opts for opts in sorted(prev_options, key=lambda item: item['value'])]
-            current_datnums = list(sorted(current_datnums))
-        return prev_options, current_datnums
+            if options['multi'] is True:
+                current_datnums = list(sorted(current_datnums))
+            else:
+                if current_datnums is None and prev_options:
+                    current_datnums = prev_options[0]['value']
+        return prev_options, current_datnums  # Return each in [] because of use of ALL
 
 
+class TestAIO(html.Div):
+    """
+    DESCRIPTION
 
+    Examples:
+        # Example init
+        ex = TemplateAIO()
+
+        # Example use of any main components
+        @callback(
+            Input(ex.store_id, 'data'),
+            Output(ex.val_id, 'value'),
+        )
+        def foo(data: list[str]) -> str:  # Showing type of arguments
+    """
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def input(aio_id, key):
+            return {
+                'component': 'TemplateAIO',
+                'subcomponent': f'input',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def div(aio_id, key):
+            return {
+                'component': 'TemplateAIO',
+                'subcomponent': f'div',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, aio_id=None):
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+
+        input = dbc.Input(id=self.ids.input(aio_id, True))
+        div = html.Div(id=self.ids.div(aio_id, 0), children='Nothing Updated')
+        super().__init__(children=[input, div])  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.div(MATCH, ALL), 'children'),
+        Input(ids.input(MATCH, ALL), 'value'),
+    )
+    def function(value):
+        logging.info(f'value = {value}')
+        logging.info(get_triggered().id)
+        return [value]

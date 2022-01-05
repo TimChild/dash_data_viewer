@@ -66,7 +66,7 @@ class SidebarComponents(object):
                                    persistence_type='local',
                                    optionHeight=20,
                                    )
-    dat_selector = DatnumPickerAIO()
+    dat_selector = DatnumPickerAIO(aio_id='transition-datpicker', allow_multiple=False)
     # inp_datnums_start = dbc.Input(id='transition-inp-datstart', type='number', placeholder='Start', debounce=True,
     #                               persistence=True, persistence_type='local')
     # inp_datnums_stop = dbc.Input(id='transition-inp-datStop', type='number', placeholder='Stop', debounce=True,
