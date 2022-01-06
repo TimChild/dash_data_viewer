@@ -12,7 +12,7 @@ setup(
     description='Dash Viewer for Dats (Folk lab UBC)',
     install_requires=[
         'dat_analysis',
-        'dash',
+        'dash>=2.0',
         'plotly',
         'pandas',
         'dash-extensions',
