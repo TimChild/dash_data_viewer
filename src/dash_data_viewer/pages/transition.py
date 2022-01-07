@@ -20,8 +20,6 @@ from dat_analysis.useful_functions import mean_data
 
 from typing import TYPE_CHECKING, Optional, List, Union
 
-from src.dash_data_viewer.layout_util import vertical_label
-
 logging.basicConfig(level=logging.INFO)
 
 if TYPE_CHECKING:
