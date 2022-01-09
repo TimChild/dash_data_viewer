@@ -20,13 +20,6 @@ class TemplateAIO(html.Div):
     # Provides
     What component outputs are intended to be used by other callbacks (if any)
 
-    Examples:
-        # Example init
-        ex = TemplateAIO()
-
-        # Example input required (if relevant)
-        # Example output provided (if relevant)
-
     """
 
     # Functions to create pattern-matching callbacks of the subcomponents
@@ -34,7 +27,7 @@ class TemplateAIO(html.Div):
         @staticmethod
         def generic(aio_id, key: str):
             return {
-                'component': 'StockSummaryAIO',
+                'component': 'TemplateAIO',
                 'subcomponent': f'generic',
                 'key': key,
                 'aio_id': aio_id,
@@ -454,3 +447,91 @@ class TestAIO(html.Div):
         logging.info(f'value = {value}')
         logging.info(get_triggered().id)
         return [value]
+
+
+class ConfigAIO(html.Div):
+    """
+    Config designed to store app-wide settings (i.e. which experiment is being run, maybe even which system the
+    server is being run on?
+
+    # Requires
+    None
+
+    # Provides
+    dcc.Store(self.store_id) -- Contains ConfigAIO.Info dataclass (use dacite.from_dict(ConfigAIO.Info, d))
+
+    Examples:
+
+    """
+
+    @dataclass
+    class Info:
+        experiment: str
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def store(aio_id):
+            return {
+                'component': 'ConfigAIO',
+                'subcomponent': f'store',
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def generic(aio_id, key: str):
+            return {
+                'component': 'ConfigAIO',
+                'subcomponent': f'generic',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, experiment_options: list[str], aio_id=None):
+        if aio_id is None:
+            aio_id = 'main-config'
+
+        self.store_id = self.ids.store(aio_id)
+        store = dcc.Store(self.store_id, storage_type='local')
+
+        dd_experiment = dcc.Dropdown(id=self.ids.generic(aio_id, 'experiment-dd'),
+                                     options=[
+                                         {'label': k, 'value': k} for k in experiment_options
+                                     ],
+                                     value=experiment_options[0],
+                                     multi=False,
+                                     persistence=True, persistence_type='local')
+        but_update = dbc.Button(children='Update', id=self.ids.generic(aio_id, 'update'))
+
+        layout = dbc.Card([
+            dbc.CardHeader('Configuration'),
+            dbc.CardBody(
+                dbc.Form([
+                    html.Div([
+                        dbc.Label('Select Experiment'),
+                        dd_experiment,
+                        dbc.FormText(f'This determines which experiment folder to look for data in')
+                    ]),
+                    but_update
+                ])
+            )
+        ])
+
+        super().__init__(children=layout)  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.store(MATCH), 'data'),
+        Input(ids.generic(MATCH, 'experiment-dd'), 'value'),
+        State(ids.store(MATCH), 'data'),
+    )
+    def function(current_config: dict):
+        if not current_config:
+            current_config = ConfigAIO.Info(experiment='')
+        else:
+            current_config = from_dict(ConfigAIO.Info, current_config)
+
+        return current_config

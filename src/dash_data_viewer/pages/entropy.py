@@ -335,7 +335,6 @@ class GetDtAIO(html.Div):
         return asdict(info)
 
 
-
 class MainComponents(object):
     """Convenient holder for any components that will end up in the main area of the page"""
     signal_div = html.Div(id='entropy-div-signal')
@@ -343,19 +342,23 @@ class MainComponents(object):
     integrated_div = html.Div(id='entropy-div-integrated')
 
     def layout(self):
-        layout = html.Div(
-            dbc.Card(
+        layout = html.Div(children=[
+            dbc.Card(children=[
                 dbc.CardHeader(html.H3('Entropy Signal')),
                 dbc.CardBody(self.signal_div),
+                ]
             ),
-            dbc.Card(
+            dbc.Card(children=[
                 dbc.CardHeader(html.H3('Entropy Signal')),
                 dbc.CardBody(self.fit_div),
+                ]
             ),
-            dbc.Card(
+            dbc.Card(children=[
                 dbc.CardHeader(html.H3('Entropy Signal')),
                 dbc.CardBody(self.integrated_div),
+                ]
             ),
+            ]
         )
         return layout
     # graph_2d_transition = dcc.Graph(id='entropy-graph-2d-transition')
@@ -414,8 +417,8 @@ sidebar_components = SidebarComponents()
 
 
 @callback(
-    Output(main_components.signal_div, 'children'),
-    Input(sidebar_components.update, 'n_clicks'),
+    Output(main_components.signal_div.id, 'children'),
+    Input(sidebar_components.update.id, 'n_clicks'),
     Input(sidebar_components.datnum.dd_id, 'value'),
     State(sidebar_components.entropy_signal_controls.store_id, 'data'),
     State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
@@ -463,11 +466,16 @@ def get_transition_data_avg(datnum: int):
     return Data1D(x=avg_x, data=avg_data, stderr=avg_std)
 
 
-
-def layout():
+def layout(add_config = False):
     """Must return the full layout for multipage to work"""
     sidebar_layout_ = sidebar_components.layout()
     main_layout_ = main_components.layout()
+
+    if add_config:
+        sidebar_layout_ = html.Div([
+            c.ConfigAIO(experiment_options=['Nov21LD']),
+            sidebar_layout_
+        ])
 
     return html.Div([
         html.H1('Entropy'),
@@ -485,8 +493,8 @@ def layout():
 
 if __name__ == '__main__':
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-    app.layout = layout()
+    app.layout = layout(add_config = True)
     app.run_server(debug=True, port=8052)
 else:
-    # dash.register_page(__name__)
+    dash.register_page(__name__)
     pass
