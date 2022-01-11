@@ -12,7 +12,11 @@ import uuid
 import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import vertical_label, label_component
 
+import dat_analysis
 from dat_analysis import get_dat, get_dats
+from dat_analysis.plotting.plotly import OneD, TwoD
+from dat_analysis.analysis_tools.square_wave import get_setpoint_indexes_from_times
+from dat_analysis.dat_object.attributes.square_entropy import process_avg_parts
 
 
 # from dash_data_viewer.layout_util import label_component
@@ -21,6 +25,7 @@ from typing import TYPE_CHECKING, Optional, List, Union
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
+    from dat_analysis.dat_object.dat_hdf import DatHDF
 
 
 class EntropySignalAIO(html.Div):
@@ -37,8 +42,17 @@ class EntropySignalAIO(html.Div):
 
     @dataclass
     class Info:
-        step_delay: float
-        centered: bool
+        step_delay: float = 0.0
+        centered: bool = False
+        graph_type_2d: str = 'heatmap'
+
+    @classmethod
+    def info_from_dict(cls, d: dict):
+        if not d:
+            info = cls.Info()
+        else:
+            info = from_dict(cls.Info, d)
+        return info
 
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
@@ -82,10 +96,7 @@ class EntropySignalAIO(html.Div):
         State(ids.generic(MATCH, 'store', 'output'), 'data'),
     )
     def function(step_delay, center_clicks, state):
-        if not state:
-            state = EntropySignalAIO.Info(step_delay=0, centered=False)
-        else:
-            state = from_dict(EntropySignalAIO.Info, state)
+        state = EntropySignalAIO.info_from_dict(state)
         state.step_delay = step_delay if step_delay else 0
         triggered = get_triggered()
         if triggered.id and triggered.id['key'] == 'centered':
@@ -106,12 +117,20 @@ class SquareSelectionAIO(html.Div):
 
     @dataclass
     class Info:
-        peak: bool
-        trough: bool
-        width: float
-        range: bool
-        range_start: float
-        range_stop: float
+        peak: bool = True
+        trough: bool = True
+        width: float = 10
+        range: bool = False
+        range_start: Optional[float] = None
+        range_stop: Optional[float] = None
+
+    @classmethod
+    def info_from_dict(cls, d: dict):
+        if not d:
+            info = cls.Info()
+        else:
+            info = from_dict(cls.Info, d)
+        return info
 
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
@@ -422,14 +441,67 @@ sidebar_components = SidebarComponents()
     Input(sidebar_components.datnum.dd_id, 'value'),
     State(sidebar_components.entropy_signal_controls.store_id, 'data'),
     State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
+    State(c.ConfigAIO.store_id, 'data'),
 )
-def update_signal_div(clicks, datnum, signal_info, square_info):
+def update_signal_div(clicks, datnum, signal_info, square_info, config):
+    config = c.ConfigAIO.config_from_dict(config)
     if datnum:
-        signal_info = from_dict(EntropySignalAIO.Info, signal_info)
-        square_info = from_dict(EntropySignalAIO.Info, square_info)
+        signal_info = EntropySignalAIO.info_from_dict(signal_info)
+        square_info = SquareSelectionAIO.info_from_dict(square_info)
+        dat = get_dat(datnum, exp2hdf=config.experiment)
+        figs = []
 
+        # 2D Transition
+        transition_2d = get_transition_data2d(dat)
+        p = TwoD(dat=dat)
+        if signal_info.graph_type_2d == 'waterfall':
+            p.MAX_POINTS = round(10000 / transition_2d.y.shape[0])
+        fig = p.figure()
+        fig.add_traces(p.trace(data=transition_2d.data, x=transition_2d.x, y=transition_2d.y,
+                               trace_type=signal_info.graph_type_2d))
+        fig.update_layout(title='Transition 2D')
+        figs.append(fig)
+
+        # Avg Transition
+        if signal_info.centered:
+            transition_1d = get_transition_data_avg(dat)
+        else:
+            transition_1d = Data1D(x=transition_2d.x, data=np.mean(transition_2d.data, axis=0),
+                                   stderr=np.std(transition_2d.data, axis=0))
+        p = OneD(dat=dat)
+        fig = p.figure(ylabel='Current /nA')
+        fig.add_trace(p.trace(data=transition_1d.data, data_err=transition_1d.stderr, x=transition_1d.x, mode='markers+lines'))
+        fig.update_layout(title='Transition 1D')
+        figs.append(fig)
+
+        # 2D Entropy
+        entropy_2d = get_entropy_data2d(dat, signal_info.step_delay)
+        p = TwoD(dat=dat)
+        if signal_info.graph_type_2d == 'waterfall':
+            p.MAX_POINTS = round(10000 / transition_2d.y.shape[0])
+        fig = p.figure()
+        fig.add_traces(p.trace(data=entropy_2d.data, x=entropy_2d.x, y=entropy_2d.y,
+                               trace_type=signal_info.graph_type_2d))
+        fig.update_layout(title='Entropy 2D')
+        figs.append(fig)
+
+        # Avg Entropy
+        entropy_1d = get_entropy_data_avg(dat, signal_info.step_delay, signal_info.centered)
+        p = OneD(dat=dat)
+        fig = p.figure(ylabel='Current /nA')
+        fig.add_trace(p.trace(data=entropy_1d.data, data_err=entropy_1d.stderr, x=entropy_1d.x, mode='markers+lines'))
+        fig.update_layout(title='Entropy 1D')
+        figs.append(fig)
+
+        return html.Div([
+            c.GraphAIO(figure=fig) for fig in figs
+            # dcc.Graph(figure=fig) for fig in figs
+        ])
 
     return html.Div('No Dat Selected')
+
+graph = c.GraphAIO()
+Output(graph.graph_id, 'figure')
 
 
 @dataclass
@@ -447,18 +519,57 @@ class Data2D:
 
 
 @lru_cache(maxsize=128)
-def get_transition_data2d(datnum: int):
-    dat = get_dat(datnum)
-    data = dat.Data.get_data('i_sense')
+def get_transition_data2d(dat: DatHDF):
+    data = np.atleast_2d(dat.Data.get_data('i_sense'))
     x = dat.Data.get_data('x')
-    y = dat.Data.get_data('y')
+    if 'y' in dat.Data.keys:
+        y = dat.Data.get_data('y')
+    else:
+        y = np.arange(data.shape[0])
     return Data2D(x=x, y=y, data=data)
 
 
+def get_entropy_data2d(dat: DatHDF, setpoint_start_time):
+    out = get_entropy_out_no_average(dat, setpoint_start_time)
+    if 'y' in dat.Data.keys:
+        y = dat.Data.get_data('y')
+    else:
+        y = np.arange(out.entropy_signal.shape[0])
+    return Data2D(x=out.x, y=y, data=out.entropy_signal)
+
+
 @lru_cache(maxsize=128)
-def get_transition_data_avg(datnum: int):
-    dat = get_dat(datnum)
-    data2d = get_transition_data2d(dat.datnum)
+def get_entropy_out_no_average(dat: DatHDF, setpoint_start_time) -> dat_analysis.analysis_tools.square_wave.Output:
+    start_index, _ = get_setpoint_indexes_from_times(dat, start_time=setpoint_start_time, end_time=None)
+    i_sense_data = get_transition_data2d(dat)
+    inputs = dat.SquareEntropy.get_Inputs(x_array=i_sense_data.x, i_sense=i_sense_data.data)
+    process_params = dat.SquareEntropy.get_ProcessParams(setpoint_start=start_index)
+    out = dat.SquareEntropy.get_row_only_output(calculate_only=True, inputs=inputs, process_params=process_params)
+    return out
+
+
+@lru_cache(maxsize=128)
+def get_entropy_out_avg(dat: DatHDF, setpoint_start_time, centered) -> dat_analysis.analysis_tools.square_wave.Output:
+    start_index, _ = get_setpoint_indexes_from_times(dat, start_time=setpoint_start_time, end_time=None)
+    i_sense_data = get_transition_data2d(dat)
+    if centered:
+        centers = None  # Will use transition fits to cold part of I_sense to determine
+    else:
+        centers = [0]*i_sense_data.data.shape[0]
+    inputs = dat.SquareEntropy.get_Inputs(x_array=i_sense_data.x, i_sense=i_sense_data.data, centers=centers)
+    process_params = dat.SquareEntropy.get_ProcessParams(setpoint_start=start_index, transition_fit_func=None)
+    out = dat.SquareEntropy.get_Outputs(calculate_only=True, inputs=inputs, process_params=process_params)
+    return out
+
+
+def get_entropy_data_avg(dat: DatHDF, setpoint_start_time, centered):
+    out = get_entropy_out_avg(dat, setpoint_start_time, centered)
+    return Data1D(x=out.x, data=out.average_entropy_signal, stderr=None)  # TODO: Calculate the stderr of averaging (after centering if used)
+
+
+@lru_cache(maxsize=128)
+def get_transition_data_avg(dat: DatHDF):
+    data2d = get_transition_data2d(dat)
     fits = [dat.Transition.get_fit(calculate_only=True, data=data, x=data2d.x) for data in data2d.data]
     centers = [fit.best_values.mid for fit in fits]
     avg_data, avg_x, avg_std = dat.Transition.get_avg_data(x=data2d.x, data=data2d.data, centers=centers, return_x=True,
