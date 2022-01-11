@@ -1,19 +1,35 @@
 import dash
+from dash import callback, Output, Input
 import dash_bootstrap_components as dbc
 import pages_plugin
 from dash_data_viewer.cache import cache
 import argparse
+from dash_data_viewer.components import ConfigAIO
 
 app = dash.Dash(__name__, plugins=[pages_plugin], external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+config_aio = ConfigAIO(experiment_options=['Nov21LD'])
 
 app.layout = dbc.Container([
     dbc.NavbarSimple([
         dbc.NavItem(dbc.NavLink(page['name'], href=page['path']))
         for page in dash.page_registry.values()  # page_registry added to dash in pages_plugin
         if page['module'] != 'pages.not_found_404'
-    ]),
+                     ]+[dbc.Button('Config', id='main-configToggle')]),
+    dbc.Collapse(id='main-configCollapse', children=config_aio, is_open=False),
     pages_plugin.page_container,
 ], fluid=True)
+
+
+@callback(
+    Output('main-configCollapse', 'is_open'),
+    Input('main-configToggle', 'n_clicks')
+)
+def toggle_collapse(clicks):
+    clicks = clicks if clicks else 0
+    if clicks % 2:
+        return True
+    return False
 
 
 if __name__ == '__main__':

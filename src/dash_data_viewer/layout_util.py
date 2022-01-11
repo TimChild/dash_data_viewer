@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from dash.development.base_component import Component
 
 
-def label_component(component, label: str) -> Component:
+def label_component(component, label: str) -> dbc.Row:
     return dbc.Row(
         [
             dbc.Col(dbc.Label(html.H4(label), html_for=label)),

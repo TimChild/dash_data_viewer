@@ -17,6 +17,7 @@ setup(
         'pandas',
         'dash-extensions',
         'dash-labs',
-        'dash-bootstrap-components'
+        'dash-bootstrap-components',
+        'dacite'
     ]
 )
