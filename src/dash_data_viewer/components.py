@@ -104,7 +104,7 @@ class DatnumPickerAIO(html.Div):
     # Make the ids class a public class
     ids = ids
 
-    def __init__(self, aio_id, allow_multiple=True):
+    def __init__(self, aio_id, allow_multiple=True, button_title='Dat Selector'):
         self.dd_id = self.ids.dropdown(aio_id)   # For easy access to this component ('value' contains selected dats)
 
         opts_store = dcc.Store(id=self.ids.options_store(aio_id),
@@ -144,7 +144,7 @@ class DatnumPickerAIO(html.Div):
 
         layout = dbc.Card(
             [
-                dbc.CardHeader(dbc.Col(html.H3('Dat Selector'))),
+                dbc.CardHeader(dbc.Col(html.H3(button_title))),
                 dbc.CardBody([
                     dbc.Row([
                         *[vertical_label(info['label'], info['component']) for info in input_infos.values()],

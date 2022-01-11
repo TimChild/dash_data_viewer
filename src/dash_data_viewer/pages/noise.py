@@ -4,6 +4,7 @@ import dash_extensions.snippets
 from dash import html, dcc, callback, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 from dash_data_viewer.cache import cache
+from dataclasses import dataclass
 
 from dat_analysis.plotting.plotly import OneD, TwoD
 from dat_analysis.dat_object.make_dat import DatHandler, get_newest_datnum, get_dat, get_dats
@@ -12,34 +13,38 @@ import dat_analysis.useful_functions as u
 import logging
 import numpy as np
 import plotly.graph_objects as go
-
-from typing import TYPE_CHECKING, Tuple
+from scipy import signal
+from scipy.fft import rfft, rfftfreq
+from scipy.integrate import cumulative_trapezoid
 
 from dash_data_viewer.entropy_report import EntropyReport
 from dash_data_viewer.transition_report import TransitionReport
 from dash_data_viewer.layout_util import label_component
-# from dash_data_viewer.layout_util import label_component
+from dash_data_viewer.components import DatnumPickerAIO
 from dash_data_viewer.cache import cache
+
+from typing import TYPE_CHECKING, Optional, List, Union, Tuple
+
+logging.basicConfig(level=logging.INFO)
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
     from dat_analysis.dat_object.dat_hdf import DatHDF
     from dat_analysis.dat_object.attributes.square_entropy import Output
 
-from scipy import signal
-from scipy.fft import rfft, rfftfreq
-from scipy.integrate import cumulative_trapezoid
-
 
 class MainComponents(object):
     """Convenient holder for any components that will end up in the main area of the page"""
     div = html.Div(id='noise-div-text')
-    graph = dcc.Graph(id='noise-graph-graph1')
+    graph1 = dcc.Graph(id='noise-graph-graph1')
     graph2 = dcc.Graph(id='noise-graph-graph2')
+    noise_info_text = html.Div(id='noise-div-dataInfoText')
 
 
 class SidebarComponents(object):
     """Convenient holder for any components that will end up in the sidebar area of the page"""
+    # input_datnum = dbc.Input(id='noise-input-datnum', type='number', placeholder='Datnum', debounce=True,
+    #                          persistence=True, persistence_type='local')
     button = dbc.Button('Click Me', id='button-click')
     datnum = dbc.Input(id='noise-input-datnum', persistence='local', debounce=True, placeholder="Datnum", type='number')
     datnum_final = dbc.Input(id='noise-input-datnum-final', persistence='local', debounce=True, placeholder="Datnum_final", type='number')
@@ -57,7 +62,23 @@ class SidebarComponents(object):
                                                             {'label': 'Welch', 'value': 'WELCH'}],
                                                             value = ['PDGM', 'WELCH'],
                                                             labelStyle={'display': 'inline-block'})                                                                                                           
-    
+    dat_selector = DatnumPickerAIO(aio_id='transition-datpicker', allow_multiple=False)
+    integrate_check = dcc.Checklist(id = 'integrated', options = [
+                                                            {'label': 'Integrate', 'value':'INT'}],
+                                                            value = ['INT'],
+                                                            labelStyle={'display': 'inline-block'})
+    freq_selector = DatnumPickerAIO(aio_id='freqpicker', allow_multiple=True, button_title='Frequency Choice') 
+    freq_width = dcc.Input(id="freq_width", type="number", placeholder=0, min=0, debounce=True)    
+    width_check = dcc.Checklist(id = 'width_freq', options = [
+                                                            {'label': '', 'value':'WIDTH'}],
+                                                            value = [],
+                                                            labelStyle={'display': 'inline-block'})                                             
+
+# Initialize the components ONCE here.
+main_components = MainComponents()
+sidebar_components = SidebarComponents()
+
+
 ###############################################################################
 # START: noise functions, leave here for now...
 ###############################################################################
@@ -114,33 +135,68 @@ def dBScale(x: np.array) -> np.ndarray:
 # END: noise functions
 ###############################################################################
 
-# Initialize the components ONCE here.
-main_components = MainComponents()
-sidebar_components = SidebarComponents()
+@dataclass
+class NoiseData:
+    x: np.ndarray
+    y: Optional[np.ndarray]
+    data: np.ndarray
+    sample_freq: Optional[float]
+    pdgm: Optional[np.ndarray]
+    welch: Optional[np.ndarray]
+    welch_window: Optional[int]
+    select_freq: Optional[np.ndarray]
+    width_freq: Optional[float]
+
+
+
+# # @cache.memoize()
+# def get_data(datnum) -> Tuple[np.darray, np.ndarray]:
+#     print(f'getting data for dat{datnum}')
+#     data = None
+#     x = None
+#     if datnum:
+#         dat = get_dat(datnum)
+#         x = dat.Data.get_data('x')
+#         if 'Experiment Copy/current' in dat.Data.keys:
+#             data = dat.Data.get_data('Experiment Copy/current')
+#         elif 'Experiment Copy/cscurrent' in dat.Data.keys:
+#             data = dat.Data.get_data('Experiment Copy/cscurrent')
+#         elif 'Experiment Copy/current_2d' in dat.Data.keys:
+#             data = dat.Data.get_data('Experiment Copy/current_2d')[0]
+#         elif 'Experiment Copy/cscurrent_2d' in dat.Data.keys:
+#             data = dat.Data.get_data('Experiment Copy/cscurrent_2d')[0]
+#         else:
+#             print(f'No data found. valid keys are {dat.Data.keys}')
+#     return x, data
 
 # @cache.memoize()
-def get_data(datnum) -> Tuple[np.darray, np.ndarray]:
-    print(f'getting data for dat{datnum}')
-    data = None
-    x = None
-    if datnum:
-        dat = get_dat(datnum)
-        x = dat.Data.get_data('x')
-        if 'Experiment Copy/current' in dat.Data.keys:
-            data = dat.Data.get_data('Experiment Copy/current')
-        elif 'Experiment Copy/cscurrent' in dat.Data.keys:
-            data = dat.Data.get_data('Experiment Copy/cscurrent')
-        elif 'Experiment Copy/current_2d' in dat.Data.keys:
-            data = dat.Data.get_data('Experiment Copy/current_2d')[0]
-        elif 'Experiment Copy/cscurrent_2d' in dat.Data.keys:
-            data = dat.Data.get_data('Experiment Copy/cscurrent_2d')[0]
-        else:
-            print(f'No data found. valid keys are {dat.Data.keys}')
-    return x, data
+def get_noise_datas(datnums: int) -> Optional[Union[NoiseData, List[NoiseData]]]:
+    tdatas = None
+    if datnums:
+        was_int = isinstance(datnums, int)
+        if isinstance(datnums, int):
+            datnums = [datnums]
+        elif not isinstance(datnums, list):
+            return None
+        dats = get_dats(datnums)
+        ndatas = []
+        for dat in dats:
+            x = dat.Data.get_data('x')
+            data = dat.Data.get_data('i_sense')
+            if 'y' in dat.Data.keys:
+                y = dat.Data.get_data('y')
+            else:
+                y = None
+            ndata = NoiseData(x=x, y=y, data=data)
+            ndatas.append(ndata)
+        if was_int is True:
+            return ndatas[0]
+    return ndatas
 
 
-
-@callback(Output(main_components.graph.id, 'figure'), Input(sidebar_components.datnum.id, 'value'))
+@callback(
+    Output(main_components.graph1.id, 'figure'),
+    Input(sidebar_components.datnum.id, 'value'))
 def update_graph(datnum) -> go.Figure:
     x, data = get_data(datnum)
     if x is not None and data is not None:
@@ -224,12 +280,91 @@ def update_graph(datnum, datnum_final, datnum_choice, specdropdown, lineardb, ps
 
 
 
+@callback(
+    Output(main_components.noise_info_text.id, 'children'),
+    Input(sidebar_components.dat_selector.dd_id, 'value'),
+    Input(sidebar_components.freq_selector.dd_id, 'value'),
+)
+def update_data_shapes(datnums: list, freqs: list):
+    """Returns Data Info"""
+    print( f'Dats = {datnums}, Datnumtype = {type(datnums)}, Frequencies = {freqs}, Freqtype = {type(freqs)}')
+
+
+    if datnums is not None:
+        print('works')
+        md = dcc.Markdown(f'''
+        Dat: {datnums}  
+        ''')
+        # f_values = [
+        #     {'freq': f} for f in freqs
+        # ]
+        f_values = [
+            {'freq': freqs}
+        ]
+        print(f'f_values = {f_values}')
+        # table = dash_table.DataTable(data=f_values, columns=[{'freq': k} for k in ['freq']])
+        table = dash_table.DataTable(data=f_values[0], columns=['freq'])
+
+        return dbc.Card([
+            dbc.CardHeader(dbc.Col(html.H3(f'Dat{datnums} Data Summary:'))),
+            dbc.CardBody(table),
+            ])
+    return html.Div()
+
+
+    ########## CHECK THIS OUT ##########
+
+
+    # @dataclass
+    # class ParInfo:
+    #     key: str
+    #     name: str
+    #     units: str
+
+    # if dat_id is not None:
+    #     dat = get_dat_from_id(dat_id)
+    #     infos: list[ParInfo] = []
+    #     for k in dat.Data.keys:
+    #         data = dat.Data.get_data(k)
+    #         shape = data.shape
+    #         min_ = np.nanmin(data)
+    #         max_ = np.nanmax(data)
+    #         infos.append(ParInfo(
+    #             name=k,
+    #             shape=shape,
+    #             min=min_,
+    #             max=max_,
+    #         ))
+
+    #     data_info = [
+    #         {'Name': info.name, 'Shape': f'{info.shape}', 'Min': f'{info.min:.4f}', 'Max': f'{info.max:.4f}'}
+    #         for info in infos
+    #     ]
+    #     table = dash_table.DataTable(data=data_info, columns=[{'name': k, 'id': k} for k in ['Name', 'Shape', 'Min', 'Max']])
+
+    #     return dbc.Card([
+    #         dbc.CardHeader(dbc.Col(html.H3(f'Dat{dat.datnum} Data Summary:'))),
+    #         dbc.CardBody(table),
+    #     ])
+    # return html.Div()
+
+
+# @callback(
+#     Output(main_components.noise_info_text.id, 'children'),
+#     Input(sidebar_components.dat_selector.dd_id, 'value'),
+#     # Input(sidebar_components.dd_datnums.id, 'value'),
+# )
+# def show_datnums(datnums):
+#     return f'{datnums}'
+    
+
 def main_layout() -> Component:
     global main_components
     m = main_components
     layout_ = html.Div([
-        m.graph,
+        m.graph1,
         m.graph2,
+        m.noise_info_text
     ])
     return layout_
 
@@ -238,13 +373,18 @@ def sidebar_layout() -> Component:
     global sidebar_components
     s = sidebar_components
     layout_ = html.Div([
-        s.button,
-        label_component(s.datnum, 'Datnum:'),
-        label_component(s.datnum_final, 'Datnum Final:'),
-        label_component(s.datnum_choice, 'For ith Dat:'),
+        s.dat_selector,
+        # s.button,
+        # label_component(s.datnum, 'Datnum:'),
+        # label_component(s.datnum_final, 'Datnum Final:'),
+        # label_component(s.datnum_choice, 'For ith Dat:'),
         label_component(s.specdropdown, 'PSD type:'),
         label_component(s.lindbdropdown, 'Scaling:'),
-       label_component(s.psdtype_checklist, 'PS Check:')
+        label_component(s.psdtype_checklist, 'PS Check:'),
+        label_component(s.integrate_check, 'Integrate:'),
+        s.freq_selector,
+        label_component(s.freq_width, 'Frequency Width:'),
+        label_component(s.width_check, 'Show Width:'),
     ])
     return layout_
 
