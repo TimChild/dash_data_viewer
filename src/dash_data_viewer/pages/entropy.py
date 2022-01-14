@@ -1,6 +1,8 @@
 from __future__ import annotations
 import dash
+import copy
 import numpy as np
+import plotly.graph_objects as go
 from dash_extensions.snippets import get_triggered
 from dataclasses import dataclass, asdict
 from dacite import from_dict
@@ -14,10 +16,12 @@ from dash_data_viewer.layout_util import vertical_label, label_component
 
 import dat_analysis
 from dat_analysis import get_dat, get_dats
+from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
 from dat_analysis.plotting.plotly import OneD, TwoD
-from dat_analysis.analysis_tools.square_wave import get_setpoint_indexes_from_times
+from dat_analysis.analysis_tools.square_wave import get_setpoint_indexes_from_times, square_wave_time_array
 from dat_analysis.dat_object.attributes.square_entropy import process_avg_parts
-
+from dat_analysis.characters import DELTA, PM
+from dat_analysis import useful_functions as U
 
 # from dash_data_viewer.layout_util import label_component
 
@@ -42,9 +46,16 @@ class EntropySignalAIO(html.Div):
 
     @dataclass
     class Info:
-        step_delay: float = 0.0
+        step_delay: str | float | int = 0.0
         centered: bool = False
         graph_type_2d: str = 'heatmap'
+
+        def __post_init__(self):
+            if isinstance(self.step_delay, str):
+                try:
+                    self.step_delay = float(self.step_delay)
+                except ValueError:
+                    self.step_delay = 0.0
 
     @classmethod
     def info_from_dict(cls, d: dict):
@@ -78,7 +89,7 @@ class EntropySignalAIO(html.Div):
             dbc.CardBody([
                 label_component(c.Input_(
                     id=self.ids.generic(aio_id, 'input', 'step_delay'),
-                    type='number',
+                    type='text', pattern='^\d*(\.\d+)?$',
                     persistence=True, persistence_type='local',
                 ), 'Delay after step: '),
                 dbc.Button(id=self.ids.generic(aio_id, 'button', 'centered'), children='Centered'),
@@ -188,9 +199,10 @@ class SquareSelectionAIO(html.Div):
         Input(ids.input(MATCH, 'stop'), 'value'),
     )
     def function(buttons, width, start, stop):
+        button_info = c.MultiButtonAIO.info_from_dict(buttons)
         buttons_selected = {}
         for k in ['peak', 'trough', 'range']:
-            buttons_selected[k] = True if k in buttons else False
+            buttons_selected[k] = True if k in button_info.selected_values else False
         return asdict(SquareSelectionAIO.Info(**buttons_selected, width=width, range_start=start, range_stop=stop))
 
 
@@ -365,19 +377,19 @@ class MainComponents(object):
             dbc.Card(children=[
                 dbc.CardHeader(html.H3('Entropy Signal')),
                 dbc.CardBody(self.signal_div),
-                ]
-            ),
-            dbc.Card(children=[
-                dbc.CardHeader(html.H3('Entropy Signal')),
-                dbc.CardBody(self.fit_div),
-                ]
-            ),
-            dbc.Card(children=[
-                dbc.CardHeader(html.H3('Entropy Signal')),
-                dbc.CardBody(self.integrated_div),
-                ]
-            ),
             ]
+            ),
+            dbc.Card(children=[
+                dbc.CardHeader(html.H3('Fit Entropy')),
+                dbc.CardBody(self.fit_div),
+            ]
+            ),
+            dbc.Card(children=[
+                dbc.CardHeader(html.H3('Integrated Entropy')),
+                dbc.CardBody(self.integrated_div),
+            ]
+            ),
+        ]
         )
         return layout
     # graph_2d_transition = dcc.Graph(id='entropy-graph-2d-transition')
@@ -434,6 +446,28 @@ class SidebarComponents(object):
 main_components = MainComponents()
 sidebar_components = SidebarComponents()
 
+# TODO: Instead of updating the input value (which prevents the last value from being stored locally)
+# TODO: Update another cell with a value based on input and rules (although this will depend on the dat, so not sure
+# TODO: how to incoporate that properly).
+@callback(
+    Output(EntropySignalAIO.ids.generic(MATCH, 'input', 'step_delay'), 'value'),
+    Input(EntropySignalAIO.ids.generic(MATCH, 'input', 'step_delay'), 'n_blur'),
+    State(EntropySignalAIO.ids.generic(MATCH, 'input', 'step_delay'), 'value'),
+    State(sidebar_components.datnum.dd_id, 'value'),
+    State(c.ConfigAIO.store_id, 'data'),
+    prevent_initial_callback=True,
+)
+def sanitize_step_delay(trigger, value, datnum, config):
+    config = c.ConfigAIO.config_from_dict(config)
+    if datnum and value:
+        value = float(value)
+        dat = get_dat(datnum, exp2hdf=config.experiment)
+        awg = dat.SquareEntropy.square_awg
+        full_setpoint_time = awg.info.wave_len / 4 * 1 / awg.info.measureFreq
+        if value >= full_setpoint_time:
+            value = round(full_setpoint_time - 0.0001, 4)
+    return value
+
 
 @callback(
     Output(main_components.signal_div.id, 'children'),
@@ -470,7 +504,8 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
                                    stderr=np.std(transition_2d.data, axis=0))
         p = OneD(dat=dat)
         fig = p.figure(ylabel='Current /nA')
-        fig.add_trace(p.trace(data=transition_1d.data, data_err=transition_1d.stderr, x=transition_1d.x, mode='markers+lines'))
+        fig.add_trace(
+            p.trace(data=transition_1d.data, data_err=transition_1d.stderr, x=transition_1d.x, mode='markers+lines'))
         fig.update_layout(title='Transition 1D')
         figs.append(fig)
 
@@ -488,20 +523,179 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
         # Avg Entropy
         entropy_1d = get_entropy_data_avg(dat, signal_info.step_delay, signal_info.centered)
         p = OneD(dat=dat)
-        fig = p.figure(ylabel='Current /nA')
+        fig = p.figure(ylabel=f'{DELTA}Current /nA')
         fig.add_trace(p.trace(data=entropy_1d.data, data_err=entropy_1d.stderr, x=entropy_1d.x, mode='markers+lines'))
         fig.update_layout(title='Entropy 1D')
         figs.append(fig)
 
-        return html.Div([
-            c.GraphAIO(figure=fig) for fig in figs
-            # dcc.Graph(figure=fig) for fig in figs
-        ])
+        # Square Wave Plots
+
+        def avg_data_to_square_wave(data: Data1D, numpts: int, startx: float | None = None,
+                                    endx: float | None = None) -> Data1D:
+            """
+            Takes 1D i_sense data which has not been separated into square wave parts, gets average of a single
+            square wave cycle over the data from x=startx to x=endx.
+
+            Args:
+                data ():  Data1D (i.e. data and x array)
+                numpts (): How many datapoints per full square wave
+                startx (): Defaults to start of data
+                endx ():  Defaults to end of data
+
+            Returns:
+                Data1D: Data and corresponding x-array
+            """
+            new_data = copy.copy(data)
+            idx_start, idx_end = U.get_data_index(data.x, [startx, endx], is_sorted=True)
+
+            if idx_start is not None:
+                idx_start = int(
+                    np.floor(idx_start / numpts) * numpts)  # So that it lines up with beginning of square wave
+            if idx_end is not None:
+                idx_end = int(np.ceil(idx_end / numpts) * numpts)  # So that it lines up with end of square wave
+
+            new_data.data = new_data.data[idx_start: idx_end]
+            new_data.x = new_data.x[idx_start: idx_end]
+
+            new_data.data = np.reshape(new_data.data, (-1, num_pts))  # Line up all cycles on top of each other
+            new_data.data = np.mean(new_data.data, axis=0)
+            new_data.data = new_data.data - np.mean(new_data.data)
+            return new_data
+
+        def square_data_to_fig(plotter: OneD, square_data: Data1D) -> go.Figure():
+            p = plotter
+            masks = square_awg.get_single_wave_masks(num=0)  # list of Masks for each part of heating cycle
+            fig = p.figure(xlabel='Time through Square Wave /s', ylabel=f'{DELTA}Current /nA')
+            for mask, label in zip(masks, ['0_0', '+', '0_1', '-']):
+                fig.add_trace(p.trace(data=square_data.data * mask, x=x, mode='lines', name=label))
+
+            for sect_start in np.linspace(0, duration, 4, endpoint=False):
+                p.add_line(fig, value=sect_start + signal_info.step_delay, mode='vertical', color='black',
+                           linetype='dash')
+            return fig
+
+        square_awg = dat.SquareEntropy.square_awg
+        num_pts = square_awg.info.wave_len
+        duration = num_pts / square_awg.measure_freq
+        x = square_wave_time_array(square_awg)  # Time array of single square wave
+
+        data_avg = get_transition_data_avg(dat, centered=False)  # Centering does not keep alignment of square waves
+        entropy_avg = get_entropy_data_avg(dat, signal_info.step_delay, signal_info.centered)
+        data_avg.x = U.get_matching_x(entropy_avg.x, data_avg.data)  # Want x value to match the possibly centered data
+        plotter = OneD(dat=dat)
+
+        # Peak
+        if square_info.peak:
+            peak_x = entropy_avg.x[np.nanargmax(entropy_avg.data)]
+            start_val, end_val = peak_x - square_info.width, peak_x + square_info.width  # Start and end in x
+            peak_data = avg_data_to_square_wave(data_avg, numpts=num_pts, startx=start_val, endx=end_val)
+            fig = square_data_to_fig(plotter, peak_data)
+            fig.update_layout(title=f'Peak (x={peak_data.x[0]:.2f}->{peak_data.x[-1]:.2f}) averaged to one Square Wave')
+            figs.append(fig)
+
+        # Trough
+        if square_info.trough:
+            trough_x = data_avg.x[np.nanargmin(data_avg.data)]
+            start_val, end_val = trough_x - square_info.width, trough_x + square_info.width
+            trough_data = avg_data_to_square_wave(data_avg, numpts=num_pts, startx=start_val, endx=end_val)
+            fig = square_data_to_fig(plotter, trough_data)
+            fig.update_layout(
+                title=f'Trough (x={trough_data.x[0]:.2f}->{trough_data.x[-1]:.2f}) averaged to one Square Wave')
+            figs.append(fig)
+
+        # Range
+        if square_info.range:
+            start_val, end_val = square_info.range_start, square_info.range_stop
+            range_data = avg_data_to_square_wave(data_avg, numpts=num_pts, startx=start_val, endx=end_val)
+            fig = square_data_to_fig(plotter, range_data)
+            fig.update_layout(
+                title=f'Range (x={range_data.x[0]:.2f}->{range_data.x[-1]:.2f}) averaged to one Square Wave')
+            figs.append(fig)
+
+        # General Info
+        awg = dat.SquareEntropy.square_awg
+        entropy_info = dbc.Col(
+            [get_squarewave_info_md(dat)]
+        )
+
+        return dbc.Row([
+                           dbc.Col([
+                               c.GraphAIO(figure=fig)
+                           ], width=12, lg=6) for fig in figs
+                       ] + [entropy_info])
 
     return html.Div('No Dat Selected')
 
-graph = c.GraphAIO()
-Output(graph.graph_id, 'figure')
+
+@callback(
+    Output(main_components.fit_div.id, 'children'),
+    Input(sidebar_components.update.id, 'n_clicks'),
+    Input(sidebar_components.datnum.dd_id, 'value'),
+    State(sidebar_components.entropy_signal_controls.store_id, 'data'),
+    State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
+    State(c.ConfigAIO.store_id, 'data'),
+)
+def update_fit_div(clicks, datnum, signal_info, square_info, config):
+    config = c.ConfigAIO.config_from_dict(config)
+    if datnum:
+        signal_info = EntropySignalAIO.info_from_dict(signal_info)
+        square_info = SquareSelectionAIO.info_from_dict(square_info)
+        dat = get_dat(datnum, exp2hdf=config.experiment)
+        figs = []
+        fit_info_mds = []
+
+        # Transition Fits
+        out = get_entropy_out_avg(dat, setpoint_start_time=signal_info.step_delay, centered=signal_info.centered)
+
+        p = OneD(dat=dat)
+        fig = p.figure(ylabel='Current /nA')
+        for k, name, color in zip(['cold', 'hot'],
+                                  ['Cold', 'Heated'],
+                                  ['blue', 'red']):
+            transition_data = get_transition_data_part(out, k)
+            fit = get_transition_fit_from_data(data=transition_data)
+
+            fig.add_traces([
+                p.trace(data=transition_data.data, x=transition_data.x, mode='markers', name=name,
+                        color=color),
+                p.trace(data=fit.eval_fit(transition_data.x), x=transition_data.x, mode='lines', name=f'{name} fit',
+                        color=color)
+            ])
+            transition_info_md = html.Div([
+                f'{name} Transition Fit:',
+                get_fit_info_md(fit)
+                ])
+
+            fit_info_mds.append(transition_info_md)
+        fig.update_layout(title='Transition fits')
+        figs.append(fig)
+
+        # Avg Entropy
+        entropy_1d = get_entropy_data_avg(dat, signal_info.step_delay, signal_info.centered)
+        fit = get_entropy_fit_from_data(entropy_1d)
+        p = OneD(dat=dat)
+        fig = p.figure(ylabel=f'{DELTA}Current /nA')
+        fig.add_traces([
+            p.trace(data=entropy_1d.data, data_err=entropy_1d.stderr, x=entropy_1d.x, mode='markers', name='Data'),
+            p.trace(data=fit.eval_fit(x=entropy_1d.x), x=entropy_1d.x, mode='lines', name='Fit')
+        ])
+        fig.update_layout(title='Entropy 1D')
+        entropy_info_md = html.Div([
+            f'Entropy Fit:',
+            get_fit_info_md(fit)
+        ])
+        fit_info_mds.append(entropy_info_md)
+        figs.append(fig)
+
+        info_mds = [dbc.Col(md, width=6, lg=4) for md in fit_info_mds]
+
+        return dbc.Row([
+                           dbc.Col([
+                               c.GraphAIO(figure=fig)
+                           ], width=12, lg=6) for fig in figs
+                       ] + info_mds)
+
+    return html.Div('No Dat Selected')
 
 
 @dataclass
@@ -510,12 +704,28 @@ class Data1D:
     data: np.ndarray
     stderr: Optional[np.ndarray]
 
+    def __hash__(self):
+        return hash(tuple([str(arr) for arr in [self.x, self.data, self.stderr]]))
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return hash(other) == hash(self)
+        return False
+
 
 @dataclass
 class Data2D:
     x: np.ndarray
     y: np.ndarray
     data: np.ndarray
+
+    def __hash__(self):
+        return hash((str(arr) for arr in [self.x, self.data, self.y]))
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return hash(other) == hash(self)
+        return False
 
 
 @lru_cache(maxsize=128)
@@ -538,9 +748,21 @@ def get_entropy_data2d(dat: DatHDF, setpoint_start_time):
     return Data2D(x=out.x, y=y, data=out.entropy_signal)
 
 
+def _get_setpoint_start_index(dat: DatHDF, setpoint_time: float | None):
+    if setpoint_time is None:
+        return 0
+    awg = dat.SquareEntropy.square_awg
+    full_setpoint_time = awg.info.wave_len * 1 / awg.info.measureFreq / 4
+    if setpoint_time < full_setpoint_time:
+        start_index, _ = get_setpoint_indexes_from_times(dat, start_time=setpoint_time, end_time=None)
+    else:
+        start_index = int(awg.info.wave_len / 4) - 1
+    return start_index
+
+
 @lru_cache(maxsize=128)
 def get_entropy_out_no_average(dat: DatHDF, setpoint_start_time) -> dat_analysis.analysis_tools.square_wave.Output:
-    start_index, _ = get_setpoint_indexes_from_times(dat, start_time=setpoint_start_time, end_time=None)
+    start_index = _get_setpoint_start_index(dat, setpoint_start_time)
     i_sense_data = get_transition_data2d(dat)
     inputs = dat.SquareEntropy.get_Inputs(x_array=i_sense_data.x, i_sense=i_sense_data.data)
     process_params = dat.SquareEntropy.get_ProcessParams(setpoint_start=start_index)
@@ -550,12 +772,12 @@ def get_entropy_out_no_average(dat: DatHDF, setpoint_start_time) -> dat_analysis
 
 @lru_cache(maxsize=128)
 def get_entropy_out_avg(dat: DatHDF, setpoint_start_time, centered) -> dat_analysis.analysis_tools.square_wave.Output:
-    start_index, _ = get_setpoint_indexes_from_times(dat, start_time=setpoint_start_time, end_time=None)
+    start_index = _get_setpoint_start_index(dat, setpoint_start_time)
     i_sense_data = get_transition_data2d(dat)
     if centered:
         centers = None  # Will use transition fits to cold part of I_sense to determine
     else:
-        centers = [0]*i_sense_data.data.shape[0]
+        centers = [0] * i_sense_data.data.shape[0]
     inputs = dat.SquareEntropy.get_Inputs(x_array=i_sense_data.x, i_sense=i_sense_data.data, centers=centers)
     process_params = dat.SquareEntropy.get_ProcessParams(setpoint_start=start_index, transition_fit_func=None)
     out = dat.SquareEntropy.get_Outputs(calculate_only=True, inputs=inputs, process_params=process_params)
@@ -564,27 +786,113 @@ def get_entropy_out_avg(dat: DatHDF, setpoint_start_time, centered) -> dat_analy
 
 def get_entropy_data_avg(dat: DatHDF, setpoint_start_time, centered):
     out = get_entropy_out_avg(dat, setpoint_start_time, centered)
-    return Data1D(x=out.x, data=out.average_entropy_signal, stderr=None)  # TODO: Calculate the stderr of averaging (after centering if used)
+    return Data1D(x=out.x, data=out.average_entropy_signal,
+                  stderr=None)  # TODO: Calculate the stderr of averaging (after centering if used)
 
 
 @lru_cache(maxsize=128)
-def get_transition_data_avg(dat: DatHDF):
+def get_transition_data_avg(dat: DatHDF, centered=True):
     data2d = get_transition_data2d(dat)
-    fits = [dat.Transition.get_fit(calculate_only=True, data=data, x=data2d.x) for data in data2d.data]
-    centers = [fit.best_values.mid for fit in fits]
-    avg_data, avg_x, avg_std = dat.Transition.get_avg_data(x=data2d.x, data=data2d.data, centers=centers, return_x=True,
-                                                           return_std=True)
+    if centered:
+        fits = [dat.Transition.get_fit(calculate_only=True, data=data, x=data2d.x) for data in data2d.data]
+        centers = [fit.best_values.mid for fit in fits]
+    else:
+        centers = [0] * data2d.data.shape[0]
+    avg_data, avg_std, avg_x = dat.Transition.get_avg_data(x=data2d.x, data=data2d.data, centers=centers, return_x=True,
+                                                           return_std=True, calculate_only=True)
     return Data1D(x=avg_x, data=avg_data, stderr=avg_std)
 
 
-def layout(add_config = False):
+@lru_cache(maxsize=128)
+def get_squarewave_info_md(dat: DatHDF):
+    awg = dat.SquareEntropy.square_awg
+    return dcc.Markdown(children=
+                        f"""
+                   Square Wave Info:
+                      - Points per full square wave: {awg.info.wave_len} 
+                      - Points per square wave step: {int(awg.info.wave_len / 4)} 
+                      - Measurement frequency: {awg.info.measureFreq:.2f} Hz
+                      - Number of DAC steps: {awg.info.num_steps} 
+                      - Full heating cycles per DAC step: {awg.info.num_cycles} 
+                      - Max AW output: {max(awg.get_single_wave(0)):.2f} mV 
+                      - Min AW output: {min(awg.get_single_wave(0))} mV
+                """
+                        )
+
+
+@lru_cache(maxsize=128)
+def get_fit_info_md(fit: dat_analysis.analysis_tools.general_fitting.FitInfo):
+    param_infos = []
+    for p in fit.params.values():
+        stderr = f'{PM}{p.stderr:.2g}' if p.stderr else ''
+        info = f'{p.name}: {p.value:.4g}{stderr}'
+        param_infos.append(info)
+    param_info_str = '\n'.join([f'- {info}' for info in param_infos])
+    return html.Div([
+        dcc.Markdown(children=
+                     f"""
+                            - Success: {fit.success}
+                            - Reduced Chi Square: {fit.reduced_chi_sq:.2g}
+                            - Fit func: {fit.func_name}"""
+                     ),
+        dcc.Markdown(children=param_info_str)
+    ])
+
+
+@lru_cache(maxsize=128)
+def get_transition_fit_from_data(data: Data1D) -> FitInfo:
+    """
+    Takes Output from SE and calculates transition fit to hot/cold part of data
+    Args:
+        data: Data1D to fit
+        part: 'cold', 'hot', 0, 1, 2, 3
+
+    Returns:
+        FitInfo result
+    """
+    from dat_analysis.dat_object.attributes.transition import i_sense, get_param_estimates, _append_param_estimate_1d
+
+    params = get_param_estimates(data.x, data.data)
+    _append_param_estimate_1d(params, pars_to_add=None)  # Will be useful for fitting other than i_sense
+
+    fit = calculate_fit(x=data.x, data=data.data, func=i_sense, params=params, generate_hash=True)
+    return fit
+
+
+def get_transition_data_part(out: dat_analysis.dat_object.attributes.square_entropy.Output, part: str) -> Data1D:
+    from dat_analysis.dat_object.attributes.square_entropy import get_transition_part
+    transition_data = Data1D(x=out.x,
+                             data=get_transition_part(data=out.averaged, part=part),
+                             stderr=None)
+    return transition_data
+
+
+@lru_cache(maxsize=128)
+def get_entropy_fit_from_data(data: Data1D) -> FitInfo:
+    """
+    Takes Output from SE and calculates transition fit to hot/cold part of data
+    Args:
+        out: Output from Square Entropy
+
+    Returns:
+        FitInfo result
+    """
+    from dat_analysis.dat_object.attributes.entropy import entropy_nik_shape, get_param_estimates
+
+    params = get_param_estimates(data.x, data.data)[0]
+
+    fit = calculate_fit(x=data.x, data=data.data, func=entropy_nik_shape, params=params, generate_hash=True)
+    return fit
+
+
+def layout(add_config=False):
     """Must return the full layout for multipage to work"""
     sidebar_layout_ = sidebar_components.layout()
     main_layout_ = main_components.layout()
 
     if add_config:
         sidebar_layout_ = html.Div([
-            c.ConfigAIO(experiment_options=['Nov21LD']),
+            c.ConfigAIO(experiment_options=['Nov21LD', 'Nov21Tim']),
             sidebar_layout_
         ])
 
@@ -593,10 +901,11 @@ def layout(add_config = False):
         dbc.Row([
             dbc.Col(
                 dbc.Card(sidebar_layout_),
-                width=3
+                sm=6, lg=3,
             ),
             dbc.Col(
-                dbc.Card(main_layout_)
+                dbc.Card(main_layout_),
+                sm=6, lg=9,
             )
         ]),
     ])
@@ -604,7 +913,7 @@ def layout(add_config = False):
 
 if __name__ == '__main__':
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-    app.layout = layout(add_config = True)
+    app.layout = layout(add_config=True)
     app.run_server(debug=True, port=8052)
 else:
     dash.register_page(__name__)
