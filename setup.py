@@ -18,6 +18,7 @@ setup(
         'dash-extensions',
         'dash-labs',
         'dash-bootstrap-components',
-        'dacite'
+        'dacite',
+        'kaleido',
     ]
 )

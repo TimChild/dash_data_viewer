@@ -9,8 +9,19 @@ import uuid
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import logging
+import tempfile
+import filelock
+import os
+import time
+
+from dat_analysis import useful_functions as u
 
 from .layout_util import vertical_label
+
+
+tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
+os.makedirs(tempdir, exist_ok=True)
+global_lock = filelock.FileLock(os.path.join(tempdir, 'components_lock.lock'))
 
 
 class TemplateAIO(html.Div):
@@ -206,7 +217,7 @@ class DatnumPickerAIO(html.Div):
         State(ids.input(MATCH, 'step'), 'value'),
         State(ids.dropdown(MATCH), 'options'),
         State(ids.dropdown(MATCH), 'value'),
-        State(ids.options_store(MATCH), 'data')
+        State(ids.options_store(MATCH), 'data'),
     )
     def update_datnums(add_clicks: Optional[int], remove_clicks: Optional[int],
                        start: Optional[int], stop: Optional[int], step: Optional[int],
@@ -555,7 +566,6 @@ class ConfigAIO(html.Div):
         return current_config
 
 
-
 class GraphAIO(html.Div):
     """
     DESCRIPTION
@@ -605,7 +615,6 @@ class GraphAIO(html.Div):
                 'aio_id': aio_id,
             }
 
-
     # Make the ids class a public class
     ids = ids
 
@@ -622,7 +631,7 @@ class GraphAIO(html.Div):
 
         options_layout = dbc.Form([
             dbc.Label(children='Download Name', html_for=self.ids.input(aio_id, 'downloadName')),
-            Input_(id=self.ids.input(aio_id, 'downloadName'), value='fig'),
+            Input_(id=self.ids.input(aio_id, 'downloadName')),
             dbc.Label(children='Download'),
             download_buttons,
         ])
@@ -643,27 +652,78 @@ class GraphAIO(html.Div):
     @callback(
         Output(ids.generic(MATCH, 'download'), 'data'),
         Input(ids.button(MATCH, ALL), 'n_clicks'),
-        State(ids.input(MATCH, 'downloadName'), 'figure'),
+        State(ids.input(MATCH, 'downloadName'), 'value'),
         State(ids.graph(MATCH), 'figure'),
+        prevent_initial_callback=True
     )
     def download(selected, download_name, figure):
         triggered = get_triggered()
         if triggered.id and triggered.id['subcomponent'] == 'button' and figure:
             selected = triggered.id['key'].lower()
-            if not download_name:
-                download_name = 'fig'
-            download_name = download_name.split('.')[0]  # To remove any extensions in name
             fig = go.Figure(figure)
+            if not download_name:
+                download_name = fig.layout.title.text if fig.layout.title.text else 'fig'
+            download_name = download_name.split('.')[0]  # To remove any extensions in name
             if selected == 'html':
-                return dict(content='Test download', filename=f'{download_name}.html')
+                return dict(content=fig.to_html(), filename=f'{download_name}.html', type='text/html')
             elif selected == 'jpeg':
-                return dict(content='Test download', filename=f'{download_name}.jpg')
+                filepath = os.path.join(tempdir, 'jpgdownload.jpg')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    fig.write_image(filepath, format='jpg')
+                    return dcc.send_file(filepath, f'{download_name}.jpg', type='image/jpg')
             elif selected == 'svg':
-                return dict(content='Test download', filename=f'{download_name}.svg')
+                filepath = os.path.join(tempdir, 'svgdownload.svg')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    fig.write_image(filepath, format='svg')
+                    return dcc.send_file(filepath, f'{download_name}.svg', type='image/svg+xml')
             elif selected == 'data':
-                data = fig.data
-                df = pd.DataFrame(data)
-                print(df.shape)
-                return dcc.send_data_frame(df.to_csv, download_name+'.csv')
+                filepath = os.path.join(tempdir, 'datadownload.json')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    u.fig_to_data_json(fig, filepath)
+                    return dcc.send_file(filepath, f'{download_name}.json', type='application/json')
         return dash.no_update
 
+    # @staticmethod
+    # @callback(
+    #     # Output(ids.generic(MATCH, 'download'), 'data'),
+    #     Input(ids.button(MATCH, ALL), 'n_clicks'),
+    #     # State(selected dat?),
+    #     # State(save name?),
+    #     # State(ids.input(MATCH, 'downloadName'), 'figure'),
+    #     State(ids.graph(MATCH), 'figure'),
+    # )
+    # def save_to_dat(selected, download_name, figure):
+    #     # TODO: Need to change all of this to save to dat instead
+    #     triggered = get_triggered()
+    #     if triggered.id and triggered.id['subcomponent'] == 'button' and figure:
+    #         selected = triggered.id['key'].lower()
+    #         if not download_name:
+    #             download_name = 'fig'
+    #         download_name = download_name.split('.')[0]  # To remove any extensions in name
+    #         fig = go.Figure(figure)
+    #         if selected == 'html':
+    #             return dict(content=fig.to_html(), filename=f'{download_name}.html', type='text/html')
+    #         elif selected == 'jpeg':
+    #             filepath = os.path.join(tempdir, 'jpgdownload.jpg')
+    #             with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+    #                 time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+    #                 fig.write_image(filepath, format='jpg')
+    #                 return dcc.send_file(filepath, f'{download_name}.svg', type='image/jpg')
+# bytes_ = False
+# if file_type == 'html':
+#     data = fig.to_html()
+#     mtype = 'text/html'
+# elif file_type == 'jpg':
+#     fig.write_image('temp/dash_temp.jpg', format='jpg')
+#     return send_file('temp/dash_temp.jpg', filename=fname, mime_type='image/jpg')
+# elif file_type == 'svg':
+#     fig.write_image('temp/dash_temp.svg', format='svg')
+#     return send_file('temp/dash_temp.svg', fname, 'image/svg+xml')
+
+#         save_name = dat.Figures._generate_fig_name(fig, overwrite=False)
+#
+#
+# dat.Figures.save_fig(fig, save_name, sub_group_name='Dash', overwrite=True)
