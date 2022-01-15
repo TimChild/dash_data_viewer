@@ -2,6 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='dash_data_viewer',
+    python_requires='>=3.10',
     version='1.0',
     packages=find_packages('src'),
     package_dir={'': 'src'},
@@ -20,5 +21,6 @@ setup(
         'dash-bootstrap-components',
         'dacite',
         'kaleido',
+        'filelock',
     ]
 )

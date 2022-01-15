@@ -2,6 +2,7 @@ from __future__ import annotations
 import dash
 import copy
 import numpy as np
+import logging
 import plotly.graph_objects as go
 from dash_extensions.snippets import get_triggered
 from dataclasses import dataclass, asdict
@@ -22,6 +23,7 @@ from dat_analysis.analysis_tools.square_wave import get_setpoint_indexes_from_ti
 from dat_analysis.dat_object.attributes.square_entropy import process_avg_parts
 from dat_analysis.characters import DELTA, PM
 from dat_analysis import useful_functions as U
+from dat_analysis.dat_object.attributes.entropy import scaling, IntegrationInfo
 
 # from dash_data_viewer.layout_util import label_component
 
@@ -30,6 +32,19 @@ from typing import TYPE_CHECKING, Optional, List, Union
 if TYPE_CHECKING:
     from dash.development.base_component import Component
     from dat_analysis.dat_object.dat_hdf import DatHDF
+
+FLOAT_REGEX = '^\d*(\.\d+)?$'
+
+
+def sanitize_floats(*args):
+    santized = []
+    for arg in args:
+        try:
+            new = float(arg) if arg else None
+        except ValueError:
+            new = None
+        santized.append(new)
+    return santized
 
 
 class EntropySignalAIO(html.Div):
@@ -89,7 +104,7 @@ class EntropySignalAIO(html.Div):
             dbc.CardBody([
                 label_component(c.Input_(
                     id=self.ids.generic(aio_id, 'input', 'step_delay'),
-                    type='text', pattern='^\d*(\.\d+)?$',
+                    type='text', pattern=FLOAT_REGEX,
                     persistence=True, persistence_type='local',
                 ), 'Delay after step: '),
                 dbc.Button(id=self.ids.generic(aio_id, 'button', 'centered'), children='Centered'),
@@ -220,8 +235,16 @@ class IntegratedEntropyAIO(html.Div):
 
     @dataclass
     class Info:
-        zero_pos: float
-        end_pos: float
+        zero_pos: float | None = None
+        end_pos: float | None = None
+
+    @classmethod
+    def info_from_dict(cls, d: dict):
+        if not d:
+            info = cls.Info()
+        else:
+            info = from_dict(cls.Info, d)
+        return info
 
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
@@ -240,9 +263,6 @@ class IntegratedEntropyAIO(html.Div):
 
         dtAIO = GetDtAIO(aio_id=aio_id)
         self.dt_store_id = dtAIO.store_id
-
-        square_selection = SquareSelectionAIO(aio_id=aio_id)
-        self.square_store_id = square_selection.store_id
 
         layout = dbc.Card([
             output_store,
@@ -292,10 +312,21 @@ class GetDtAIO(html.Div):
 
     @dataclass
     class Info:
-        method: str
-        value: Optional[float]
-        equation: Optional[str]
-        channel: Optional[str]
+        method: str = 'fixed'
+        value: Optional[float] = None
+        ref_channel_value: float | None = None
+        ref_dt: float | None = None
+        linear_term: float | None = None
+        constant_term: float | None = None
+        channel: Optional[str] = None
+
+    @classmethod
+    def info_from_dict(cls, d: dict):
+        if not d:
+            info = cls.Info()
+        else:
+            info = from_dict(cls.Info, d)
+        return info
 
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
@@ -324,26 +355,37 @@ class GetDtAIO(html.Div):
         layout = dbc.Card([
             output_store,
             dbc.CardHeader('dT'),
-            dbc.CardBody([
-                c.MultiButtonAIO(button_texts=['Fixed', 'Dat', 'Equation'],
-                                 button_values=['fixed', 'dat', 'eq'],
-                                 aio_id=aio_id, allow_multiple=False, storage_type='local',
-                                 ),
-                label_component(
-                    c.Input_(id=self.ids.input(aio_id, 'value'), type='number', min=0, persistence=True),
-                    'Value'
-                ),
-                label_component(
-                    c.Input_(id=self.ids.input(aio_id, 'equation'), type='text', min=0, persistence=True,
-                             placeholder='0.001*channel + 5.0'),
-                    'Equation'
-                ),
-                label_component(
-                    c.Input_(id=self.ids.input(aio_id, 'channel'), type='text', min=0, persistence=True,
-                             placeholder='ESC'),
-                    'Channel'
-                ),
-            ]),
+            dbc.CardBody(
+                dbc.Form([
+                    c.MultiButtonAIO(button_texts=['Fixed', 'Dat', 'Equation'],
+                                     button_values=['fixed', 'dat', 'eq'],
+                                     aio_id=aio_id, allow_multiple=False, storage_type='local',
+                                     ),
+                    dbc.Label('Value', html_for=self.ids.input(aio_id, 'value')),
+                    c.Input_(id=self.ids.input(aio_id, 'value'), type='text', pattern=FLOAT_REGEX, placeholder='1.0',
+                             persistence=True),
+
+                    dbc.Label('Ref Channel Value', html_for=self.ids.input(aio_id, 'ref_value')),
+                    c.Input_(id=self.ids.input(aio_id, 'ref_value'), type='text', pattern=FLOAT_REGEX,
+                             placeholder='-250',
+                             persistence=True),
+
+                    dbc.Label('Ref dT', html_for=self.ids.input(aio_id, 'ref_dt')),
+                    c.Input_(id=self.ids.input(aio_id, 'ref_dt'), type='text', pattern=FLOAT_REGEX, placeholder='1.0',
+                             persistence=True),
+
+                    dbc.Label('Linear Term', html_for=self.ids.input(aio_id, 'linear')),
+                    c.Input_(id=self.ids.input(aio_id, 'linear'), type='text', pattern=FLOAT_REGEX, placeholder='0.001',
+                             persistence=True),
+
+                    dbc.Label('Constant Term', html_for=self.ids.input(aio_id, 'constant')),
+                    c.Input_(id=self.ids.input(aio_id, 'constant'), type='text', pattern=FLOAT_REGEX, placeholder='0.0',
+                             persistence=True),
+
+                    dbc.Label('Channel', html_for=self.ids.input(aio_id, 'channel')),
+                    c.Input_(id=self.ids.input(aio_id, 'channel'), type='text', placeholder='ESC', persistence=True),
+                ])
+            ),
         ])
 
         super().__init__(children=layout)  # html.Div contains layout
@@ -353,17 +395,46 @@ class GetDtAIO(html.Div):
         Output(ids.generic(MATCH, 'store', 'output'), 'data'),
         Input(c.MultiButtonAIO.ids.store(MATCH), 'data'),
         Input(ids.input(MATCH, 'value'), 'value'),
-        Input(ids.input(MATCH, 'equation'), 'value'),
+        Input(ids.input(MATCH, 'ref_value'), 'value'),
+        Input(ids.input(MATCH, 'ref_dt'), 'value'),
+        Input(ids.input(MATCH, 'linear'), 'value'),
+        Input(ids.input(MATCH, 'constant'), 'value'),
         Input(ids.input(MATCH, 'channel'), 'value'),
     )
-    def function(button, value, equation, channel):
+    def function(button, value, ref_value, ref_dt, linear, const, channel):
+        button = c.MultiButtonAIO.info_from_dict(button)
+        value, ref_value, ref_dt, linear, const = sanitize_floats(value, ref_value, ref_dt, linear, const)
+
         info = GetDtAIO.Info(
-            method=button,
+            method=button.selected_values,
             value=value,
-            equation=equation,
+            ref_channel_value=ref_value,
+            ref_dt=ref_dt,
+            linear_term=linear,
+            constant_term=const,
             channel=channel,
         )
         return asdict(info)
+
+    @staticmethod
+    @callback(
+        Output(ids.input(MATCH, 'value'), 'disabled'),
+        Output(ids.input(MATCH, 'ref_value'), 'disabled'),
+        Output(ids.input(MATCH, 'ref_dt'), 'disabled'),
+        Output(ids.input(MATCH, 'linear'), 'disabled'),
+        Output(ids.input(MATCH, 'constant'), 'disabled'),
+        Output(ids.input(MATCH, 'channel'), 'disabled'),
+        Input(c.MultiButtonAIO.ids.store(MATCH), 'data'),
+    )
+    def allowed(button):
+        button = c.MultiButtonAIO.info_from_dict(button)
+        disabled_state = [True]*6
+        if button.selected_values == 'fixed':
+            disabled_state[0] = False
+        elif button.selected_values == 'eq':
+            disabled_state = [False] * 6
+            disabled_state[0] = True
+        return disabled_state
 
 
 class MainComponents(object):
@@ -380,7 +451,7 @@ class MainComponents(object):
             ]
             ),
             dbc.Card(children=[
-                dbc.CardHeader(html.H3('Fit Entropy')),
+                dbc.CardHeader(html.H3('Fitting Data')),
                 dbc.CardBody(self.fit_div),
             ]
             ),
@@ -425,7 +496,7 @@ class SidebarComponents(object):
     datnum = c.DatnumPickerAIO(aio_id='entropy-datnumPicker', allow_multiple=False)
     entropy_signal_controls = EntropySignalAIO(aio_id='entropy-signalAIO')
     fit_entropy_placeholder = dbc.Card([
-        dbc.CardHeader('Fit Entropy'),
+        dbc.CardHeader('Fitting Info'),
         dbc.CardBody(),
     ])
     integrated_entropy_controls = IntegratedEntropyAIO(aio_id='entropy-integratedAIO')
@@ -445,6 +516,7 @@ class SidebarComponents(object):
 # Initialize the components ONCE here.
 main_components = MainComponents()
 sidebar_components = SidebarComponents()
+
 
 # TODO: Instead of updating the input value (which prevents the last value from being stored locally)
 # TODO: Update another cell with a value based on input and rules (although this will depend on the dat, so not sure
@@ -664,7 +736,7 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
             transition_info_md = html.Div([
                 f'{name} Transition Fit:',
                 get_fit_info_md(fit)
-                ])
+            ])
 
             fit_info_mds.append(transition_info_md)
         fig.update_layout(title='Transition fits')
@@ -696,6 +768,131 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
                        ] + info_mds)
 
     return html.Div('No Dat Selected')
+
+
+@callback(
+    Output(main_components.integrated_div.id, 'children'),
+    Input(sidebar_components.update.id, 'n_clicks'),
+    Input(sidebar_components.datnum.dd_id, 'value'),
+    State(sidebar_components.entropy_signal_controls.store_id, 'data'),
+    State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
+    State(sidebar_components.integrated_entropy_controls.store_id, 'data'),
+    State(sidebar_components.integrated_entropy_controls.dt_store_id, 'data'),
+    State(c.ConfigAIO.store_id, 'data'),
+)
+def update_fit_div(clicks, datnum, signal_info, square_info, integrated_info, dt_info, config):
+    config = c.ConfigAIO.config_from_dict(config)
+    if datnum:
+        signal_info = EntropySignalAIO.info_from_dict(signal_info)
+        square_info = SquareSelectionAIO.info_from_dict(square_info)
+        integrated_info = IntegratedEntropyAIO.info_from_dict(integrated_info)
+        dt_info = GetDtAIO.info_from_dict(dt_info)
+        dat = get_dat(datnum, exp2hdf=config.experiment)
+
+        # get dT
+        dt = get_dT(dat, dt_info, setpoint_start=signal_info.step_delay, centered=signal_info.centered)
+
+        # get Integration Info
+        out = get_entropy_out_avg(dat, signal_info.step_delay, signal_info.centered)
+        transition_data = get_transition_data_part(out, 'cold')
+        transition_fit = get_transition_fit_from_data(transition_data)
+        amp = transition_fit.best_values.amp
+        dx = abs((transition_data.x[-1] - transition_data.x[0]) / transition_data.x.shape[-1])
+        sf = scaling(dt, amp, dx)
+        int_info = IntegrationInfo(dT=dt, amp=amp, dx=dx, sf=sf)
+
+        # Other setup
+        zero_pos = U.get_data_index(transition_data.x, integrated_info.zero_pos, is_sorted=True) \
+            if integrated_info.zero_pos else 0
+        end_pos = U.get_data_index(transition_data.x, integrated_info.end_pos, is_sorted=True) \
+            if integrated_info.end_pos else -1
+
+        figs = []
+        # Integrated Avg
+        entropy_avg = get_entropy_data_avg(dat,
+                                           setpoint_start_time=signal_info.step_delay,
+                                           centered=signal_info.centered)
+        integrated = int_info.integrate(entropy_avg.data)
+        integrated = integrated - integrated[zero_pos]
+        int_err = int_info.integrate(entropy_avg.stderr) if entropy_avg.stderr else None
+        p = OneD(dat=dat)
+        fig = p.plot(data=integrated, data_err=int_err, x=entropy_avg.x, ylabel='Entropy /kB',
+                     title=f'Integrated Entropy (Amp={amp:.3f}, dT={dt:.4f})', mode='lines')
+        figs.append(fig)
+
+        #  Per Row integrated
+        entropy_2d = get_entropy_data2d(dat, signal_info.step_delay)
+        integrated = int_info.integrate(entropy_2d.data)
+        integrated = integrated - integrated[:, zero_pos][:, None]
+        p = TwoD(dat=dat)
+        fig = p.plot(data=integrated, x=entropy_2d.x, ylabel='Entropy /kB',
+                     title=f'Integrated Entropy (Amp={amp:.3f}, dT={dt:.4f})',
+                     plot_type='heatmap')
+        figs.append(fig)
+
+        # Per row value
+        values = integrated[:, end_pos]
+        p = OneD(dat=dat)
+        fig = p.plot(data=values, x=entropy_2d.y, ylabel='Entropy /kB',
+                     title=f'Integrated Entropy Values per Row (Amp={amp:.3f}, dT={dt:.4f})', mode='markers')
+        figs.append(fig)
+
+        return dbc.Row([
+                           dbc.Col([
+                               c.GraphAIO(figure=fig)
+                           ], width=12, lg=6) for fig in figs
+                       ])
+    return html.Div(f'No dat selected')
+
+
+
+def get_dT(dat, dt_info: GetDtAIO.Info, setpoint_start: float | None, centered: bool):
+    """
+    Get delta T by selected method (either fixed value, calculated from hot theta - cold theta, or from linear
+    extrapolation
+
+    Args:
+        dat ():
+        dt_info ():
+        setpoint_start ():  Only used if calculating from dat (necessary for calculating fits)
+        centered (): Only used if calculating from dat (necessary for calculating fits)
+
+    Returns:
+
+    """
+    if dt_info.method == 'fixed':
+        dt = dt_info.value if dt_info.value else 1.0
+    elif dt_info.method == 'dat':
+        out = get_entropy_out_avg(dat, setpoint_start_time=setpoint_start, centered=centered)
+        transition_datas = [get_transition_data_part(out, k) for k in ['hot', 'cold']]
+        fits = [get_transition_fit_from_data(data=data) for data in transition_datas]
+        thetas = [fit.best_values.get('theta', None) if fit else None for fit in fits]
+        dt = thetas[0] - thetas[1] if None not in thetas else 1.0
+    elif dt_info.method == 'eq':
+        if all([dt_info.ref_channel_value, dt_info.ref_dt, dt_info.channel]):
+            ref_channel_val = dt_info.ref_channel_value
+            ref_dt = dt_info.ref_dt
+            channel = dt_info.channel
+            linear = dt_info.linear_term if dt_info.linear_term else 0.0
+            constant = dt_info.constant_term if dt_info.constant_term else 0.0
+
+            try:
+                new_channel_val = dat.Logs.dacs[channel]
+            except KeyError as e:
+                logging.error(f'{channel} not found in ({list(dat.Logs.dacs.keys())}')
+                new_channel_val = None
+
+            if new_channel_val:
+                new_dt = ref_dt * (linear * ref_channel_val + constant) / (linear * new_channel_val + constant)
+            else:
+                dt = 1.0
+        else:
+            logging.error(f'Not enough info provided to calculate dT from equation {dt_info}')
+            dt = 1.0
+    else:
+        logging.error(f'Invalid dt_info.method choice ({dt_info.method})')
+        dt = 1.0
+    return dt
 
 
 @dataclass
