@@ -33,10 +33,18 @@ if TYPE_CHECKING:
     from dash.development.base_component import Component
     from dat_analysis.dat_object.dat_hdf import DatHDF
 
-FLOAT_REGEX = '^\d*(\.\d+)?$'
+FLOAT_REGEX = '^(-)?\d*(\.\d+)?$'
 
 
 def sanitize_floats(*args):
+    """
+    Either returns None if None passed in or float not valid, otherwise converts string to float
+    Args:
+        *args ():
+
+    Returns:
+
+    """
     santized = []
     for arg in args:
         try:
@@ -235,8 +243,8 @@ class IntegratedEntropyAIO(html.Div):
 
     @dataclass
     class Info:
-        zero_pos: float | None = None
-        end_pos: float | None = None
+        zero_pos: float | int | None = None
+        end_pos: float | int | None = None
 
     @classmethod
     def info_from_dict(cls, d: dict):
@@ -272,7 +280,7 @@ class IntegratedEntropyAIO(html.Div):
                 label_component(
                     c.Input_(
                         id=self.ids.generic(aio_id, 'input', 'zero'),
-                        type='number',
+                        type='text', pattern=FLOAT_REGEX,
                         persistence=True, persistence_type='local',
                     ),
                     'Zero Pos: '
@@ -280,7 +288,7 @@ class IntegratedEntropyAIO(html.Div):
                 label_component(
                     c.Input_(
                         id=self.ids.generic(aio_id, 'input', 'end'),
-                        type='number',
+                        type='text', pattern=FLOAT_REGEX,
                         persistence=True, persistence_type='local',
                     ),
                     'End Pos: '
@@ -296,6 +304,7 @@ class IntegratedEntropyAIO(html.Div):
         Input(ids.generic(MATCH, 'input', 'end'), 'value'),
     )
     def function(zero, end):
+        zero, end = sanitize_floats(zero, end)
         return asdict(IntegratedEntropyAIO.Info(zero_pos=zero, end_pos=end))
 
 
@@ -565,7 +574,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
         fig = p.figure()
         fig.add_traces(p.trace(data=transition_2d.data, x=transition_2d.x, y=transition_2d.y,
                                trace_type=signal_info.graph_type_2d))
-        fig.update_layout(title='Transition 2D')
+        fig.update_layout(title=f'Dat{dat.datnum}: Transition 2D')
         figs.append(fig)
 
         # Avg Transition
@@ -578,7 +587,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
         fig = p.figure(ylabel='Current /nA')
         fig.add_trace(
             p.trace(data=transition_1d.data, data_err=transition_1d.stderr, x=transition_1d.x, mode='markers+lines'))
-        fig.update_layout(title='Transition 1D')
+        fig.update_layout(title=f'Dat{dat.datnum}: Transition 1D')
         figs.append(fig)
 
         # 2D Entropy
@@ -589,7 +598,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
         fig = p.figure()
         fig.add_traces(p.trace(data=entropy_2d.data, x=entropy_2d.x, y=entropy_2d.y,
                                trace_type=signal_info.graph_type_2d))
-        fig.update_layout(title='Entropy 2D')
+        fig.update_layout(title=f'Dat{dat.datnum}: Entropy 2D')
         figs.append(fig)
 
         # Avg Entropy
@@ -597,7 +606,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
         p = OneD(dat=dat)
         fig = p.figure(ylabel=f'{DELTA}Current /nA')
         fig.add_trace(p.trace(data=entropy_1d.data, data_err=entropy_1d.stderr, x=entropy_1d.x, mode='markers+lines'))
-        fig.update_layout(title='Entropy 1D')
+        fig.update_layout(title=f'Dat{dat.datnum}: Entropy 1D')
         figs.append(fig)
 
         # Square Wave Plots
@@ -662,7 +671,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
             start_val, end_val = peak_x - square_info.width, peak_x + square_info.width  # Start and end in x
             peak_data = avg_data_to_square_wave(data_avg, numpts=num_pts, startx=start_val, endx=end_val)
             fig = square_data_to_fig(plotter, peak_data)
-            fig.update_layout(title=f'Peak (x={peak_data.x[0]:.2f}->{peak_data.x[-1]:.2f}) averaged to one Square Wave')
+            fig.update_layout(title=f'Dat{dat.datnum}: Peak (x={peak_data.x[0]:.2f}->{peak_data.x[-1]:.2f}) averaged to one Square Wave')
             figs.append(fig)
 
         # Trough
@@ -672,7 +681,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
             trough_data = avg_data_to_square_wave(data_avg, numpts=num_pts, startx=start_val, endx=end_val)
             fig = square_data_to_fig(plotter, trough_data)
             fig.update_layout(
-                title=f'Trough (x={trough_data.x[0]:.2f}->{trough_data.x[-1]:.2f}) averaged to one Square Wave')
+                title=f'Dat{dat.datnum}: Trough (x={trough_data.x[0]:.2f}->{trough_data.x[-1]:.2f}) averaged to one Square Wave')
             figs.append(fig)
 
         # Range
@@ -681,7 +690,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
             range_data = avg_data_to_square_wave(data_avg, numpts=num_pts, startx=start_val, endx=end_val)
             fig = square_data_to_fig(plotter, range_data)
             fig.update_layout(
-                title=f'Range (x={range_data.x[0]:.2f}->{range_data.x[-1]:.2f}) averaged to one Square Wave')
+                title=f'Dat{dat.datnum}: Range (x={range_data.x[0]:.2f}->{range_data.x[-1]:.2f}) averaged to one Square Wave')
             figs.append(fig)
 
         # General Info
@@ -739,7 +748,7 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
             ])
 
             fit_info_mds.append(transition_info_md)
-        fig.update_layout(title='Transition fits')
+        fig.update_layout(title=f'Dat{dat.datnum}: Transition fits')
         figs.append(fig)
 
         # Avg Entropy
@@ -751,7 +760,7 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
             p.trace(data=entropy_1d.data, data_err=entropy_1d.stderr, x=entropy_1d.x, mode='markers', name='Data'),
             p.trace(data=fit.eval_fit(x=entropy_1d.x), x=entropy_1d.x, mode='lines', name='Fit')
         ])
-        fig.update_layout(title='Entropy 1D')
+        fig.update_layout(title=f'Dat{dat.datnum}: Entropy 1D')
         entropy_info_md = html.Div([
             f'Entropy Fit:',
             get_fit_info_md(fit)
@@ -817,7 +826,10 @@ def update_fit_div(clicks, datnum, signal_info, square_info, integrated_info, dt
         int_err = int_info.integrate(entropy_avg.stderr) if entropy_avg.stderr else None
         p = OneD(dat=dat)
         fig = p.plot(data=integrated, data_err=int_err, x=entropy_avg.x, ylabel='Entropy /kB',
-                     title=f'Integrated Entropy (Amp={amp:.3f}, dT={dt:.4f})', mode='lines')
+                     title=f'Dat{dat.datnum}: Integrated Entropy (Amp={amp:.3f}, dT={dt:.4f})', mode='lines')
+        for pos in [integrated_info.zero_pos, integrated_info.end_pos]:
+            if pos:
+                p.add_line(fig, pos, mode='vertical', color='black', linetype='dash')
         figs.append(fig)
 
         #  Per Row integrated
@@ -826,15 +838,25 @@ def update_fit_div(clicks, datnum, signal_info, square_info, integrated_info, dt
         integrated = integrated - integrated[:, zero_pos][:, None]
         p = TwoD(dat=dat)
         fig = p.plot(data=integrated, x=entropy_2d.x, ylabel='Entropy /kB',
-                     title=f'Integrated Entropy (Amp={amp:.3f}, dT={dt:.4f})',
-                     plot_type='heatmap')
+                     title=f'Dat{dat.datnum}: Integrated Entropy (Amp={amp:.3f}, dT={dt:.4f})',
+                     plot_type='waterfall')
+        fig.update_layout(
+            margin=go.layout.Margin(
+                l=0,  # left margin
+                r=0,  # right margin
+                b=0,  # bottom margin
+            )
+        )
+        # for pos in [integrated_info.zero_pos, integrated_info.end_pos]:
+        #     if pos:
+        #         p.add_line(fig, pos, mode='vertical', color='black', linetype='dash')
         figs.append(fig)
 
         # Per row value
         values = integrated[:, end_pos]
         p = OneD(dat=dat)
         fig = p.plot(data=values, x=entropy_2d.y, ylabel='Entropy /kB',
-                     title=f'Integrated Entropy Values per Row (Amp={amp:.3f}, dT={dt:.4f})', mode='markers')
+                     title=f'Dat{dat.datnum}: Integrated Entropy Values per Row (Amp={amp:.3f}, dT={dt:.4f})', mode='markers')
         figs.append(fig)
 
         return dbc.Row([
