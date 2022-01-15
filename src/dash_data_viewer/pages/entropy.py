@@ -550,6 +550,14 @@ def sanitize_step_delay(trigger, value, datnum, config):
     return value
 
 
+def check_dat_valid(dat: DatHDF) -> bool:
+    try:
+        awg = dat.Logs.awg
+    except U.NotFoundInHdfError:
+        return False
+    return True
+
+
 @callback(
     Output(main_components.signal_div.id, 'children'),
     Input(sidebar_components.update.id, 'n_clicks'),
@@ -564,6 +572,9 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
         signal_info = EntropySignalAIO.info_from_dict(signal_info)
         square_info = SquareSelectionAIO.info_from_dict(square_info)
         dat = get_dat(datnum, exp2hdf=config.experiment)
+        if not check_dat_valid(dat):
+            return html.Div(f'{dat} is Invalid')
+
         figs = []
 
         # 2D Transition
@@ -722,6 +733,9 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
         signal_info = EntropySignalAIO.info_from_dict(signal_info)
         square_info = SquareSelectionAIO.info_from_dict(square_info)
         dat = get_dat(datnum, exp2hdf=config.experiment)
+        if not check_dat_valid(dat):
+            return html.Div(f'{dat} is Invalid')
+
         figs = []
         fit_info_mds = []
 
@@ -743,7 +757,7 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
                         color=color)
             ])
             transition_info_md = html.Div([
-                f'{name} Transition Fit:',
+                f'Dat{dat.datnum}: {name} Transition Fit:',
                 get_fit_info_md(fit)
             ])
 
@@ -762,7 +776,7 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
         ])
         fig.update_layout(title=f'Dat{dat.datnum}: Entropy 1D')
         entropy_info_md = html.Div([
-            f'Entropy Fit:',
+            f'Dat{dat.datnum}: Entropy Fit:',
             get_fit_info_md(fit)
         ])
         fit_info_mds.append(entropy_info_md)
@@ -797,6 +811,8 @@ def update_fit_div(clicks, datnum, signal_info, square_info, integrated_info, dt
         integrated_info = IntegratedEntropyAIO.info_from_dict(integrated_info)
         dt_info = GetDtAIO.info_from_dict(dt_info)
         dat = get_dat(datnum, exp2hdf=config.experiment)
+        if not check_dat_valid(dat):
+            return html.Div(f'{dat} is Invalid')
 
         # get dT
         dt = get_dT(dat, dt_info, setpoint_start=signal_info.step_delay, centered=signal_info.centered)
@@ -1027,7 +1043,7 @@ def get_squarewave_info_md(dat: DatHDF):
     awg = dat.SquareEntropy.square_awg
     return dcc.Markdown(children=
                         f"""
-                   Square Wave Info:
+                   Dat{dat.datnum}: Square Wave Info:
                       - Points per full square wave: {awg.info.wave_len} 
                       - Points per square wave step: {int(awg.info.wave_len / 4)} 
                       - Measurement frequency: {awg.info.measureFreq:.2f} Hz
