@@ -8,7 +8,7 @@ from dash_data_viewer.components import ConfigAIO
 
 app = dash.Dash(__name__, plugins=[pages_plugin], external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-config_aio = ConfigAIO(experiment_options=['Nov21Tim', 'Nov21LD'])
+config_aio = ConfigAIO(experiment_options=['Nov21Tim', 'Nov21LD', 'FebMar21Tim'])
 
 app.layout = dbc.Container([
     dbc.NavbarSimple([
@@ -44,4 +44,4 @@ if __name__ == '__main__':
     if args.r:
         app.run_server(debug=False, port=8050, threaded=True, host='0.0.0.0')
     else:
-        app.run_server(debug=True, port=8050, threaded=True)
+        app.run_server(debug=True, port=8052, threaded=True, dev_tools_hot_reload=False)

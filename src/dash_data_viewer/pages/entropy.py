@@ -1127,7 +1127,7 @@ def layout(add_config=False):
 
     if add_config:
         sidebar_layout_ = html.Div([
-            c.ConfigAIO(experiment_options=['Nov21LD', 'Nov21Tim']),
+            c.ConfigAIO(experiment_options=['Nov21LD', 'Nov21Tim', 'FebMar21Tim']),
             sidebar_layout_
         ])
 
