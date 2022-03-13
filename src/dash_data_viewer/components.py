@@ -1,6 +1,8 @@
 from dash import Input, Output, State, dcc, html, callback, MATCH, ALL, ALLSMALLER, dash
+from dataclasses import dataclass, asdict
+from dacite import from_dict
 from dash_extensions.snippets import get_triggered
-from typing import Optional, List
+from typing import Optional, List, Union, Any
 import uuid
 import dash_bootstrap_components as dbc
 import logging
@@ -11,26 +13,20 @@ from .layout_util import vertical_label
 class TemplateAIO(html.Div):
     """
     DESCRIPTION
-
-    Examples:
-        # Example init
-        ex = TemplateAIO()
-
-        # Example use of any main components
-        @callback(
-            Input(ex.store_id, 'data'),
-            Output(ex.val_id, 'value'),
-        )
-        def foo(data: list[str]) -> str:  # Showing type of arguments
+    # Requires
+    What components require outside callbacks in order to work (if any)
+    # Provides
+    What component outputs are intended to be used by other callbacks (if any)
     """
 
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
         @staticmethod
-        def input(aio_id):
+        def generic(aio_id, key: str):
             return {
                 'component': 'TemplateAIO',
-                'subcomponent': f'input',
+                'subcomponent': f'generic',
+                'key': key,
                 'aio_id': aio_id,
             }
 
@@ -51,18 +47,47 @@ class TemplateAIO(html.Div):
     #     pass
 
 
+def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text', max=None, maxlength=None, min=None,
+           minlength=None, step=None, size='md', valid=False, required=False, placeholder='', name='', debounce=True,
+           persistence=False, persistence_type='local', **kwargs) -> dbc.Input:
+    """
+    Args:
+        id (): ID in page
+        type (): The type of control to render. (a value equal to: "text", 'number', 'password', 'email', 'range', 'search', 'tel', 'url', 'hidden'; optional):
+        value (): initial value of input
+        autocomplete (): Enable browser autocomplete
+        inputmode (): (a value equal to: "verbatim", "latin", "latin-name", "latin-prose", "full-width-latin", "kana", "katakana", "numeric", "tel", "email", "url"; optional): Provides a hint to the browser as to the type of data that might be entered by the user while editing the element or its contents.
+        max (): Max value (or date) allowed
+        maxlength (): Max string length allowed
+        min (): Min value (or date) allowed
+        minlength (): Min string length allowed
+        step (): Step size for value type
+        size (): 'sm', 'md', or 'lg'. Defaults to 'md'
+        valid (): Apply valid style (adds a tick)
+        required (): Entry required for form submission
+        placeholder (): Placeholder text (not an actual value)
+        name (): Name of component submitted with form data
+        debounce (): Update only on focus loss or enter key
+        persistence (): Whether the value should persist
+        persistence_type (): (a value equal to: 'local', 'session', 'memory'; default 'local'). memory: only kept in memory, reset on page refresh. local: window.localStorage, data is kept after the browser quit. session: window.sessionStorage, data is cleared once the browser quit.
+        **kwargs (): Any other kwargs accepted by dbc.Input
+    Returns:
+    """
+    return dbc.Input(id=id, type=type, value=value, autocomplete=autocomplete, inputmode=inputmode, max=max,
+                     maxlength=maxlength, min=min, minlength=minlength, step=step, size=size, valid=valid,
+                     required=required, placeholder=placeholder, name=name, debounce=debounce, persistence=persistence,
+                     persistence_type=persistence_type, **kwargs)
+
+
 class DatnumPickerAIO(html.Div):
     """
     A group of buttons with custom text where one can be selected at a time and returns either the text or a specific
     value
-
     Examples:
         picker = DatnumPickerAIO(aio_id='testpage-datpicker')  # Fixed ID required for persistence to work
-
         @callback(Input(picker.dd_id, 'value'))  # Selected Datnums are accessible from the dd.value
         def foo(datnums: list):
             return datnums
-
     """
 
     # Functions to create pattern-matching callbacks of the subcomponents
@@ -104,8 +129,8 @@ class DatnumPickerAIO(html.Div):
     # Make the ids class a public class
     ids = ids
 
-    def __init__(self, aio_id, allow_multiple=True):
-        self.dd_id = self.ids.dropdown(aio_id)   # For easy access to this component ('value' contains selected dats)
+    def __init__(self, aio_id, allow_multiple=True, button_title='Dat Selector'):
+        self.dd_id = self.ids.dropdown(aio_id)  # For easy access to this component ('value' contains selected dats)
 
         opts_store = dcc.Store(id=self.ids.options_store(aio_id),
                                data=dict(multi=allow_multiple)
@@ -144,7 +169,7 @@ class DatnumPickerAIO(html.Div):
 
         layout = dbc.Card(
             [
-                dbc.CardHeader(dbc.Col(html.H3('Dat Selector'))),
+                dbc.CardHeader(dbc.Col(html.H3(button_title))),
                 dbc.CardBody([
                     dbc.Row([
                         *[vertical_label(info['label'], info['component']) for info in input_infos.values()],
@@ -187,9 +212,7 @@ class DatnumPickerAIO(html.Div):
             prev_options ():
             current_datnums ():
             options (): Additional options that are stored on creation of AIO
-
         Returns:
-
         """
         logging.info(f'Current datnums: {current_datnums}')
         prev_options = prev_options if prev_options else []
@@ -228,14 +251,136 @@ class DatnumPickerAIO(html.Div):
         return prev_options, current_datnums  # Return each in [] because of use of ALL
 
 
+class MultiButtonAIO(html.Div):
+    """
+    A group of buttons with custom text where one(multiple) can be selected at a time and returns either the text or a specific
+    value
+    # Requires
+    None
+    # Provides
+    dcc.Store(id=self.store_id) -- Filled Info class
+    Examples:
+    # Example init
+    ex = TemplateAIO()
+    # Example input required (if relevant)
+    # Example output provided (if relevant)
+    """
+
+    @dataclass
+    class Info:
+        selected_values: Union[List[Any], Any]
+        selected_numbers: List[int]  # Button numbers (so I know which to color)
+
+    @dataclass
+    class Config:
+        allow_multiple: bool
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def button(aio_id, num, value):
+            return {
+                'component': 'MultiButtonAIO',
+                'subcomponent': f'button',
+                'number': num,
+                'aio_id': aio_id,
+                'value': value,
+            }
+
+        @staticmethod
+        def store(aio_id):
+            return {
+                'component': 'MultiButtonAIO',
+                'subcomponent': f'store',
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def config(aio_id):
+            return {
+                'component': 'MultiButtonAIO',
+                'subcomponent': f'config_store',
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, button_texts: list[str], button_values: list | None = None, button_props: dict = None,
+                 aio_id=None, allow_multiple=False, storage_type='memory'):
+        if button_props is None:
+            button_props = {}
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+
+        config = self.Config(allow_multiple=allow_multiple)
+
+        # # Store other optional params here so that the callback can see them
+        config_store = dcc.Store(id=self.ids.config(aio_id), storage_type='session',
+                                 data=asdict(config))
+
+        if button_values is None:
+            button_values = button_texts
+
+        self.store_id = self.ids.store(aio_id)
+
+        buttons = [dbc.Button(
+            id=self.ids.button(aio_id, num, value), children=text, color='danger', **button_props
+        ) for num, (text, value) in
+            enumerate(zip(button_texts, button_values))
+        ]
+        if not allow_multiple:
+            buttons[0].color = 'success'
+
+        button_layout = dbc.ButtonGroup(buttons)
+
+        super().__init__(children=[
+            button_layout,
+            dcc.Store(id=self.ids.store(aio_id), storage_type=storage_type),
+            config_store,
+        ])
+
+    @staticmethod
+    @callback(
+        Output(ids.store(MATCH), 'data'),
+        Output(ids.button(MATCH, ALL, ALL), 'color'),
+        Input(ids.button(MATCH, ALL, ALL), 'n_clicks'),
+        State(ids.button(MATCH, ALL, ALL), 'color'),
+        State(ids.store(MATCH), 'data'),
+        State(ids.config(MATCH), 'data'),
+    )
+    def update_button_output(all_clicks, button_colors, current_data, config):
+        config = from_dict(MultiButtonAIO.Config, config)
+        if not current_data or not isinstance(current_data, dict):
+            current_data = MultiButtonAIO.Info(selected_values=[], selected_numbers=[])
+        else:
+            current_data = from_dict(MultiButtonAIO.Info, current_data)
+
+        triggered = get_triggered()
+        if triggered.id:
+            selected = triggered.id.get('value')
+            num = triggered.id.get('number')
+            if config.allow_multiple is False:
+                current_data.selected_values = selected
+                current_data.selected_numbers = [num]
+            else:  # Allowing multiple selection
+                if selected in current_data.selected_values:  # Remove if already selected
+                    current_data.selected_values.remove(selected)
+                    current_data.selected_numbers.remove(num)
+                else:  # Add otherwise
+                    current_data.selected_values.append(selected)
+                    current_data.selected_numbers.append(num)
+        colors = ['danger' if i not in current_data.selected_numbers else 'success' for i, _ in
+                  enumerate(button_colors)]
+        return asdict(current_data), colors
+
+
 class TestAIO(html.Div):
     """
     DESCRIPTION
-
     Examples:
         # Example init
         ex = TemplateAIO()
-
         # Example use of any main components
         @callback(
             Input(ex.store_id, 'data'),
@@ -284,3 +429,87 @@ class TestAIO(html.Div):
         logging.info(f'value = {value}')
         logging.info(get_triggered().id)
         return [value]
+
+
+class ConfigAIO(html.Div):
+    """
+    Config designed to store app-wide settings (i.e. which experiment is being run, maybe even which system the
+    server is being run on?
+    # Requires
+    None
+    # Provides
+    dcc.Store(self.store_id) -- Contains ConfigAIO.Info dataclass (use dacite.from_dict(ConfigAIO.Info, d))
+    Examples:
+    """
+
+    @dataclass
+    class Info:
+        experiment: str
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def store(aio_id):
+            return {
+                'component': 'ConfigAIO',
+                'subcomponent': f'store',
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def generic(aio_id, key: str):
+            return {
+                'component': 'ConfigAIO',
+                'subcomponent': f'generic',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, experiment_options: list[str], aio_id=None):
+        if aio_id is None:
+            aio_id = 'main-config'
+
+        self.store_id = self.ids.store(aio_id)
+        store = dcc.Store(self.store_id, storage_type='local')
+
+        dd_experiment = dcc.Dropdown(id=self.ids.generic(aio_id, 'experiment-dd'),
+                                     options=[
+                                         {'label': k, 'value': k} for k in experiment_options
+                                     ],
+                                     value=experiment_options[0],
+                                     multi=False,
+                                     persistence=True, persistence_type='local')
+        but_update = dbc.Button(children='Update', id=self.ids.generic(aio_id, 'update'))
+
+        layout = dbc.Card([
+            dbc.CardHeader('Configuration'),
+            dbc.CardBody(
+                dbc.Form([
+                    html.Div([
+                        dbc.Label('Select Experiment'),
+                        dd_experiment,
+                        dbc.FormText(f'This determines which experiment folder to look for data in')
+                    ]),
+                    but_update
+                ])
+            )
+        ])
+
+        super().__init__(children=layout)  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.store(MATCH), 'data'),
+        Input(ids.generic(MATCH, 'experiment-dd'), 'value'),
+        State(ids.store(MATCH), 'data'),
+    )
+    def function(current_config: dict):
+        if not current_config:
+            current_config = ConfigAIO.Info(experiment='')
+        else:
+            current_config = from_dict(ConfigAIO.Info, current_config)
+
+        return current_config

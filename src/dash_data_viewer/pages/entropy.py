@@ -12,8 +12,8 @@ import uuid
 import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import vertical_label, label_component
 
-from dat_analysis import get_dat, get_dats
-
+# from dat_analysis import get_dat, get_dats
+from dat_analysis.dat_object.make_dat import DatHandler, get_newest_datnum, get_dat, get_dats
 
 # from dash_data_viewer.layout_util import label_component
 
