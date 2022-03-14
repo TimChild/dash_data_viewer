@@ -43,8 +43,6 @@ class MainComponents(object):
 
 class SidebarComponents(object):
     """Convenient holder for any components that will end up in the sidebar area of the page"""
-    # input_datnum = dbc.Input(id='noise-input-datnum', type='number', placeholder='Datnum', debounce=True,
-    #                          persistence=True, persistence_type='local')
     button = dbc.Button('Click Me', id='button-click')
     datnum = dbc.Input(id='noise-input-datnum', persistence='local', debounce=True, placeholder="Datnum", type='number')
     datnum_final = dbc.Input(id='noise-input-datnum-final', persistence='local', debounce=True, placeholder="Datnum_final", type='number')
@@ -110,15 +108,16 @@ def psd(x: np.ndarray, delf: float, type_psd: list, n: float = None) -> np.ndarr
 
     return [f, P_xx]
 
+
 def integrate(x, y):
     '''
     Takes an array of y values and the x spacing between each point
     (assumed constant) and returns an array of the cumulative 
     integration (area)
     '''
-    # x = np.arange(0, len(y), dt)
 
     return cumulative_trapezoid(y, x, initial=0)
+
 
 def dBScale(x: np.array) -> np.ndarray:
     """Converts array into decibels
@@ -207,25 +206,17 @@ def update_graph(datnum) -> go.Figure:
         return fig
     return go.Figure()
 
+
+# Updating graphs
 @callback(Output(main_components.graph2.id, 'figure'), 
-          Input(sidebar_components.datnum.id, 'value'), 
-          Input(sidebar_components.datnum_final.id, 'value'),
-          Input(sidebar_components.datnum_choice.id, 'value'),
+          Input(sidebar_components.dat_selector.dd_id, 'value'),
+          Input(sidebar_components.freq_selector.dd_id, 'value'),
           Input(sidebar_components.specdropdown.id, 'value'),
           Input(sidebar_components.lindbdropdown.id, 'value'),
           Input(sidebar_components.psdtype_checklist.id, 'value'))
-def update_graph(datnum, datnum_final, datnum_choice, specdropdown, lineardb, ps_check) -> go.Figure:
-
-    dat_vals = []
-    if datnum_final == None:
-        datnum_final = datnum + 1
-        datnum_choice = 1
-
-    for dat in np.arange(datnum, datnum_final, datnum_choice):
-        x, data = get_data(dat)
-        if  x is not None and data is not None:
-            dat_vals.append(dat)
-
+def update_graph(datnums: list, freqs: list, specdropdown, lineardb, ps_check) -> go.Figure:
+    print(f'Hitting graphing callback')
+    print( f'Dats = {datnums}, Datnumtype = {type(datnums)}, Frequencies = {freqs}, Freqtype = {type(freqs)}')
 
     # Creating correct y label
     if lineardb == 0:
@@ -250,36 +241,36 @@ def update_graph(datnum, datnum_final, datnum_choice, specdropdown, lineardb, ps
         fig.update_xaxes(type="log")
         fig.update_yaxes(type="log")
     # If none of the dats are good then return empty figure
-    if len(dat_vals) == 0:
+    print(f'Here are our datvals = {datnums}')
+    if datnums == None:
         return go.Figure()
     else:
-        for dat_val in dat_vals:
-            print(f'Getting dat {dat_val}')
+        print(f'Getting dat {datnums}')
 
-            x, data = get_data(dat_val)
-            dat = get_dat(dat_val)
-            freq = dat.Logs.measure_freq
+        x, data = get_dat(datnums)
+        dat = get_dat(datnums)
+        freq = dat.Logs.measure_freq
 
-            if 'PDGM' in ps_check:
-                psd_pdgm = psd(data, freq, [specdropdown, 0])
-                psd_pdgm_pxx = psd_pdgm[1]
-                freq_pdgm = psd_pdgm[0]
-                if lineardb == 1:   
-                    psd_pdgm_pxx = dBScale(psd_pdgm_pxx)
-                fig.add_trace(p1d.trace(x=freq_pdgm, data=psd_pdgm_pxx, mode='lines', name=f'Dat{dat_val}: Periodogram'))
+        if 'PDGM' in ps_check:
+            psd_pdgm = psd(data, freq, [specdropdown, 0])
+            psd_pdgm_pxx = psd_pdgm[1]
+            freq_pdgm = psd_pdgm[0]
+            if lineardb == 1:   
+                psd_pdgm_pxx = dBScale(psd_pdgm_pxx)
+            fig.add_trace(p1d.trace(x=freq_pdgm, data=psd_pdgm_pxx, mode='lines', name=f'Dat{dat_val}: Periodogram'))
 
-            if 'WELCH' in ps_check:
-                psd_welch = psd(data, freq, [specdropdown, 1], n=20)
-                psd_welch_pxx = psd_welch[1]
-                freq_welch = psd_welch[0]
-                if lineardb == 1:   
-                    psd_welch_pxx = dBScale(psd_welch_pxx) 
-                fig.add_trace(p1d.trace(x=freq_welch, data=psd_welch_pxx, mode='lines', name=f'Dat{dat_val}: Welch'))
-            
-        return fig
-
+        if 'WELCH' in ps_check:
+            psd_welch = psd(data, freq, [specdropdown, 1], n=20)
+            psd_welch_pxx = psd_welch[1]
+            freq_welch = psd_welch[0]
+            if lineardb == 1:   
+                psd_welch_pxx = dBScale(psd_welch_pxx) 
+            fig.add_trace(p1d.trace(x=freq_welch, data=psd_welch_pxx, mode='lines', name=f'Dat{dat_val}: Welch'))
+        
+    return fig
 
 
+# Updating table of information
 @callback(
     Output(main_components.noise_info_text.id, 'children'),
     Input(sidebar_components.dat_selector.dd_id, 'value'),
@@ -349,13 +340,6 @@ def update_data_shapes(datnums: list, freqs: list):
     # return html.Div()
 
 
-# @callback(
-#     Output(main_components.noise_info_text.id, 'children'),
-#     Input(sidebar_components.dat_selector.dd_id, 'value'),
-#     # Input(sidebar_components.dd_datnums.id, 'value'),
-# )
-# def show_datnums(datnums):
-#     return f'{datnums}'
     
 
 def main_layout() -> Component:
@@ -374,10 +358,6 @@ def sidebar_layout() -> Component:
     s = sidebar_components
     layout_ = html.Div([
         s.dat_selector,
-        # s.button,
-        # label_component(s.datnum, 'Datnum:'),
-        # label_component(s.datnum_final, 'Datnum Final:'),
-        # label_component(s.datnum_choice, 'For ith Dat:'),
         label_component(s.specdropdown, 'PSD type:'),
         label_component(s.lindbdropdown, 'Scaling:'),
         label_component(s.psdtype_checklist, 'PS Check:'),

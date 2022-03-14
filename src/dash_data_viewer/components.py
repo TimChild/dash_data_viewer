@@ -1,13 +1,27 @@
 from dash import Input, Output, State, dcc, html, callback, MATCH, ALL, ALLSMALLER, dash
 from dataclasses import dataclass, asdict
+import pandas as pd
 from dacite import from_dict
 from dash_extensions.snippets import get_triggered
+from dash_extensions import Download
 from typing import Optional, List, Union, Any
 import uuid
 import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
 import logging
+import tempfile
+import filelock
+import os
+import time
+
+from dat_analysis import useful_functions as u
 
 from .layout_util import vertical_label
+
+
+tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
+os.makedirs(tempdir, exist_ok=True)
+global_lock = filelock.FileLock(os.path.join(tempdir, 'components_lock.lock'))
 
 
 class TemplateAIO(html.Div):
@@ -194,7 +208,7 @@ class DatnumPickerAIO(html.Div):
         State(ids.input(MATCH, 'step'), 'value'),
         State(ids.dropdown(MATCH), 'options'),
         State(ids.dropdown(MATCH), 'value'),
-        State(ids.options_store(MATCH), 'data')
+        State(ids.options_store(MATCH), 'data'),
     )
     def update_datnums(add_clicks: Optional[int], remove_clicks: Optional[int],
                        start: Optional[int], stop: Optional[int], step: Optional[int],
@@ -270,6 +284,14 @@ class MultiButtonAIO(html.Div):
     class Info:
         selected_values: Union[List[Any], Any]
         selected_numbers: List[int]  # Button numbers (so I know which to color)
+
+    @classmethod
+    def info_from_dict(cls, d: dict) -> Info:
+        if not d:
+            return cls.Info([], [])
+        else:
+            return from_dict(cls.Info, d)
+
 
     @dataclass
     class Config:
@@ -435,6 +457,8 @@ class ConfigAIO(html.Div):
     """
     Config designed to store app-wide settings (i.e. which experiment is being run, maybe even which system the
     server is being run on?
+    Note: no aio_id because there should only ever be one of these in the full layout (may change that in future)
+
     # Requires
     None
     # Provides
@@ -446,45 +470,53 @@ class ConfigAIO(html.Div):
     class Info:
         experiment: str
 
+    @classmethod
+    def config_from_dict(cls, d: dict):
+        if not d:
+            config = cls.Info(experiment='')
+        else:
+            config = from_dict(cls.Info, d)
+        return config
+
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
         @staticmethod
-        def store(aio_id):
+        def store():
             return {
                 'component': 'ConfigAIO',
                 'subcomponent': f'store',
-                'aio_id': aio_id,
             }
 
         @staticmethod
-        def generic(aio_id, key: str):
+        def generic(key: str):
             return {
                 'component': 'ConfigAIO',
                 'subcomponent': f'generic',
                 'key': key,
-                'aio_id': aio_id,
             }
 
     # Make the ids class a public class
     ids = ids
 
-    def __init__(self, experiment_options: list[str], aio_id=None):
-        if aio_id is None:
-            aio_id = 'main-config'
+    @classmethod
+    @property
+    def store_id(cls):
+        return cls.ids.store()
 
-        self.store_id = self.ids.store(aio_id)
+    def __init__(self, experiment_options: list[str]):
         store = dcc.Store(self.store_id, storage_type='local')
 
-        dd_experiment = dcc.Dropdown(id=self.ids.generic(aio_id, 'experiment-dd'),
+        dd_experiment = dcc.Dropdown(id=self.ids.generic('experiment-dd'),
                                      options=[
                                          {'label': k, 'value': k} for k in experiment_options
                                      ],
                                      value=experiment_options[0],
                                      multi=False,
                                      persistence=True, persistence_type='local')
-        but_update = dbc.Button(children='Update', id=self.ids.generic(aio_id, 'update'))
+        but_update = dbc.Button(children='Update', id=self.ids.generic('update'))
 
         layout = dbc.Card([
+            store,
             dbc.CardHeader('Configuration'),
             dbc.CardBody(
                 dbc.Form([
@@ -502,14 +534,175 @@ class ConfigAIO(html.Div):
 
     @staticmethod
     @callback(
-        Output(ids.store(MATCH), 'data'),
-        Input(ids.generic(MATCH, 'experiment-dd'), 'value'),
-        State(ids.store(MATCH), 'data'),
+        Output(ids.store(), 'data'),
+        Input(ids.generic('update'), 'n_clicks'),
+        State(ids.generic('experiment-dd'), 'value'),
+        State(ids.store(), 'data'),
     )
-    def function(current_config: dict):
-        if not current_config:
-            current_config = ConfigAIO.Info(experiment='')
-        else:
-            current_config = from_dict(ConfigAIO.Info, current_config)
-
+    def function(clicks, selected, current_config: dict):
+        current_config = ConfigAIO.config_from_dict(current_config)
+        current_config.experiment = selected
         return current_config
+
+
+class GraphAIO(html.Div):
+    """
+    DESCRIPTION
+
+    # Requires
+    What components require outside callbacks in order to work (if any)
+
+    # Provides
+    What component outputs are intended to be used by other callbacks (if any)
+
+    """
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def generic(aio_id, key: str):
+            return {
+                'component': 'GraphAIO',
+                'subcomponent': f'generic',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def input(aio_id, key: str):
+            return {
+                'component': 'GraphAIO',
+                'subcomponent': f'input',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def button(aio_id, key: str):
+            return {
+                'component': 'GraphAIO',
+                'subcomponent': f'button',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def graph(aio_id):
+            return {
+                'component': 'GraphAIO',
+                'subcomponent': f'figure',
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, aio_id=None, figure=None, **graph_kwargs):
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+
+        self.graph_id = self.ids.graph(aio_id)
+        fig = dcc.Graph(id=self.graph_id, figure=figure, **graph_kwargs)
+
+        download_buttons = dbc.ButtonGroup([
+            dbc.Button(children=name, id=self.ids.button(aio_id, name)) for name in ['HTML', 'Jpeg', 'SVG', 'Data']
+        ])
+
+        options_layout = dbc.Form([
+            dbc.Label(children='Download Name', html_for=self.ids.input(aio_id, 'downloadName')),
+            Input_(id=self.ids.input(aio_id, 'downloadName')),
+            dbc.Label(children='Download'),
+            download_buttons,
+        ])
+
+        options_button = dbc.Button(id=self.ids.button(aio_id, 'optsPopover'), children='Options', size='sm', color='light')
+        options_popover = dbc.Popover(children=dbc.PopoverBody(options_layout), target=options_button.id, trigger='click')
+
+        full_layout = html.Div([
+            dcc.Download(id=self.ids.generic(aio_id, 'download')),
+            options_popover,
+            fig,
+            html.Div(children=options_button, style={'position': 'absolute', 'top': 0, 'left': 0}),
+        ], style={'position': 'relative'})
+
+        super().__init__(children=full_layout)  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.generic(MATCH, 'download'), 'data'),
+        Input(ids.button(MATCH, ALL), 'n_clicks'),
+        State(ids.input(MATCH, 'downloadName'), 'value'),
+        State(ids.graph(MATCH), 'figure'),
+        prevent_initial_callback=True
+    )
+    def download(selected, download_name, figure):
+        triggered = get_triggered()
+        if triggered.id and triggered.id['subcomponent'] == 'button' and figure:
+            selected = triggered.id['key'].lower()
+            fig = go.Figure(figure)
+            if not download_name:
+                download_name = fig.layout.title.text if fig.layout.title.text else 'fig'
+            download_name = download_name.split('.')[0]  # To remove any extensions in name
+            if selected == 'html':
+                return dict(content=fig.to_html(), filename=f'{download_name}.html', type='text/html')
+            elif selected == 'jpeg':
+                filepath = os.path.join(tempdir, 'jpgdownload.jpg')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    fig.write_image(filepath, format='jpg')
+                    return dcc.send_file(filepath, f'{download_name}.jpg', type='image/jpg')
+            elif selected == 'svg':
+                filepath = os.path.join(tempdir, 'svgdownload.svg')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    fig.write_image(filepath, format='svg')
+                    return dcc.send_file(filepath, f'{download_name}.svg', type='image/svg+xml')
+            elif selected == 'data':
+                filepath = os.path.join(tempdir, 'datadownload.json')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    u.fig_to_data_json(fig, filepath)
+                    return dcc.send_file(filepath, f'{download_name}.json', type='application/json')
+        return dash.no_update
+
+    # @staticmethod
+    # @callback(
+    #     # Output(ids.generic(MATCH, 'download'), 'data'),
+    #     Input(ids.button(MATCH, ALL), 'n_clicks'),
+    #     # State(selected dat?),
+    #     # State(save name?),
+    #     # State(ids.input(MATCH, 'downloadName'), 'figure'),
+    #     State(ids.graph(MATCH), 'figure'),
+    # )
+    # def save_to_dat(selected, download_name, figure):
+    #     # TODO: Need to change all of this to save to dat instead
+    #     triggered = get_triggered()
+    #     if triggered.id and triggered.id['subcomponent'] == 'button' and figure:
+    #         selected = triggered.id['key'].lower()
+    #         if not download_name:
+    #             download_name = 'fig'
+    #         download_name = download_name.split('.')[0]  # To remove any extensions in name
+    #         fig = go.Figure(figure)
+    #         if selected == 'html':
+    #             return dict(content=fig.to_html(), filename=f'{download_name}.html', type='text/html')
+    #         elif selected == 'jpeg':
+    #             filepath = os.path.join(tempdir, 'jpgdownload.jpg')
+    #             with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+    #                 time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+    #                 fig.write_image(filepath, format='jpg')
+    #                 return dcc.send_file(filepath, f'{download_name}.svg', type='image/jpg')
+# bytes_ = False
+# if file_type == 'html':
+#     data = fig.to_html()
+#     mtype = 'text/html'
+# elif file_type == 'jpg':
+#     fig.write_image('temp/dash_temp.jpg', format='jpg')
+#     return send_file('temp/dash_temp.jpg', filename=fname, mime_type='image/jpg')
+# elif file_type == 'svg':
+#     fig.write_image('temp/dash_temp.svg', format='svg')
+#     return send_file('temp/dash_temp.svg', fname, 'image/svg+xml')
+
+#         save_name = dat.Figures._generate_fig_name(fig, overwrite=False)
+#
+#
+# dat.Figures.save_fig(fig, save_name, sub_group_name='Dash', overwrite=True)

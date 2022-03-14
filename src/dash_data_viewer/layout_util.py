@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 def label_component(component, label: str) -> dbc.Row:
     return dbc.Row(
         [
-            dbc.Col(dbc.Label(html.H4(label), html_for=label)),
+            dbc.Col(dbc.Label(html.H5(label), html_for=label)),
             dbc.Col(
                 component,
             ),
@@ -31,7 +31,7 @@ def vertical_label(label: str, component: Component, **kwargs) -> dbc.Col:
 
     """
     return dbc.Col([
-        dbc.Row(dbc.Col(html.H4(label), width=12)),
+        dbc.Row(dbc.Col(html.H5(label), width=12)),
         dbc.Row(dbc.Col(component, width=12)),
     ],
         **kwargs
