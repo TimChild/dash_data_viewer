@@ -65,24 +65,24 @@ class SeparateSquareProcessInterface(ProcessInterface):
     def main_outputs(self) -> List[Component]:
         return []
 
-    @staticmethod
-    @callback(
-        Output('entropy-process-separated_out', 'children'),
-        Input(c.DatnumPickerAIO.ids.dropdown('entropy-process-datpicker'), 'value'),
-    )
-    def do_something(datnum):
-        if datnum:
-            dat = get_dat(2164, exp2hdf='febmar21tim')
-
-            square_process = SeparateSquareProcessDash()
-            square_process.input_data(dat.Data.i_sense, dat.Data.x, dat.Logs.measure_freq, round(dat.AWG.info.wave_len/4), 0.01, dat.Data.y)
-            square_process.preprocess()
-            square_process.output_data()
-
-            layout = square_process.dash_full()
-            print(layout)
-
-            return layout
+    # @staticmethod
+    # @callback(
+    #     Output('entropy-process-separated_out', 'children'),
+    #     Input(c.DatnumPickerAIO.ids.dropdown('entropy-process-datpicker'), 'value'),
+    # )
+    # def do_something(datnum):
+    #     if datnum:
+    #         dat = get_dat(2164, exp2hdf='febmar21tim')
+    #
+    #         square_process = SeparateSquareProcessDash()
+    #         square_process.input_data(dat.Data.i_sense, dat.Data.x, dat.Logs.measure_freq, round(dat.AWG.info.wave_len/4), 0.01, dat.Data.y)
+    #         square_process.preprocess()
+    #         square_process.output_data()
+    #
+    #         layout = square_process.dash_full()
+    #         print(layout)
+    #
+    #         return layout
 
 
 class MainComponents(object):
@@ -144,4 +144,5 @@ if __name__ == '__main__':
     app.layout = layout()
     app.run_server(debug=True, port=8051)
 else:
-    dash.register_page(__name__)
+    # dash.register_page(__name__)
+    pass

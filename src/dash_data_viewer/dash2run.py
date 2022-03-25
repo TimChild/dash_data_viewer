@@ -42,6 +42,6 @@ if __name__ == '__main__':
     print(args.r)
 
     if args.r:
-        app.run_server(debug=False, port=8050, threaded=True, host='0.0.0.0')
+        app.run_server(debug=False, port=9050, threaded=True, host='0.0.0.0')
     else:
-        app.run_server(debug=True, port=8052, threaded=True, dev_tools_hot_reload=False)
+        app.run_server(debug=True, port=8052, threaded=True, dev_tools_hot_reload=True)

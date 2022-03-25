@@ -74,7 +74,7 @@ class ProcessInterface(abc.ABC):
     def required_input_components(self) -> List[Union[ProcessComponentInput, List[ProcessComponentInput]]]:
         """
         Give the list of components that need to be placed in order for the Process to be carried out
-        Should all update stores or possibly the dat file (TODO: how to get lower steps of data?)
+        Should all update stores or possibly the dat file
         Returns:
 
         """
