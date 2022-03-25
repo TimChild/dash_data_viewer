@@ -99,6 +99,56 @@ def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text
                      persistence_type=persistence_type, **kwargs)
 
 
+class CollapseAIO(html.Div):
+    """
+    DESCRIPTION
+
+    # Requires
+    What components require outside callbacks in order to work (if any)
+
+    # Provides
+    What component outputs are intended to be used by other callbacks (if any)
+
+    """
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def generic(aio_id, key: str):
+            return {
+                'component': 'CollapseAIO',
+                'subcomponent': f'generic',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, aio_id=None, content: html.Div = None, button_text: str = 'Expand', start_open=False):
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+
+        layout = [
+            dbc.Button(button_text, id=self.ids.generic(aio_id, 'expand-button')),
+            dbc.Collapse(children=content, id=self.ids.generic(aio_id, 'collapse'), is_open=start_open),
+        ]
+        super().__init__(children=layout)  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.generic(MATCH, 'collapse'), 'is_open'),
+        Input(ids.generic(MATCH, 'expand-button'), 'n_clicks'),
+        State(ids.generic(MATCH, 'collapse'), 'is_open'),
+    )
+    def toggle_collapse(clicks, is_open: bool):
+        if clicks:
+            return not is_open
+        return is_open
+
+
+
+
 class DatnumPickerAIO(html.Div):
     """
     A group of buttons with custom text where one can be selected at a time and returns either the text or a specific
