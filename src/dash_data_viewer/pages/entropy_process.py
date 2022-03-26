@@ -56,6 +56,12 @@ class SeparateSquareProcessDash(DashEnabledProcess, SeparateSquareProcess):
 
 # For making dash interface
 class SeparateSquareProcessInterface(ProcessInterface):
+    def user_inputs(self, *args, **kwargs) -> html.Div:
+        pass
+
+    def other_inputs(self, *args, **kwargs):
+        pass
+
     def required_input_components(self) -> List[Component]:
         return [c.DatnumPickerAIO(aio_id='entropy-process-datpicker', allow_multiple=False)]
 

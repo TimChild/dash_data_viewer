@@ -65,10 +65,41 @@ class ProcessInterface(abc.ABC):
 
     human friendly input, and id of file to load from (or data passed in)
     """
+    id_prefix = 'DEFAULT'
 
-    def __init__(self):
-        self.store_id = ''
-        self.sub_store_ids = []
+    def id(self, key) -> str:
+        return f'{self.id_prefix}-{key}'
+
+    @abc.abstractmethod
+    def user_inputs(self, *args, **kwargs) -> html.Div:
+        """
+        Make the required user input components and return layout
+        Make sure all IDs are either saved or defined in class
+
+        Note: Mostly specific to this process, if using input from another component, make sure to save the ID
+
+        TODO: Make some helper function to make it easier to make simple labelled inputs
+        Args:
+            *args ():
+            **kwargs ():
+
+        Returns:
+
+        """
+
+    @abc.abstractmethod
+    def other_inputs(self, *args, **kwargs):
+        """
+
+        Args:
+            *args ():
+            **kwargs ():
+
+        Returns:
+
+        """
+
+
 
     @abc.abstractmethod
     def required_input_components(self) -> List[Union[ProcessComponentInput, List[ProcessComponentInput]]]:

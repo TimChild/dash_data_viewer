@@ -10,12 +10,28 @@ import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
 from dash_data_viewer.process_dash_extensions import ProcessInterface, ProcessComponentInput, ProcessComponentOutput, ProcessComponentOutputGraph, DashEnabledProcess
+from dash_data_viewer.layout_util import label_component
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
 from dat_analysis import get_dat
+from dat_analysis.hdf_file_handler import GlobalLock
+from dat_analysis.useful_functions import data_to_json, data_from_json
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
+
+
+LOCK = GlobalLock('test_file.txt.lock')
+TEST_FILE = 'test_file.txt'
+
+
+def get_data(data_or_location: Union[str, list]) -> np.ndarray:
+    """Either data will be stored as a dataset directly, or some location to the data (including dat_id, group_location)"""
+    if isinstance(data_or_location, list):
+        return np.array(data_or_location)
+    elif isinstance(data_or_location, str):
+        pass
+    raise NotImplementedError(f"Type = {type(data_or_location)}")
 
 
 class TestProcess(Process):
@@ -23,22 +39,28 @@ class TestProcess(Process):
     def __base_data(self) -> [np.ndarray, np.ndarray]:
         return np.linspace(0, 10, 100), np.sin(np.linspace(0, 10, 100))
 
-    def input_data(self, a, b):
-        self._data_input = dict(a=a, b=b)
+    def input_data(self, a, b, x=None, data=None):
+        if x is None or data is None:
+            x, data = self.__base_data()
+        self._data_input = dict(a=a, b=b, x=x, data=data)
 
     def preprocess(self):
         pass
 
     def output_data(self) -> PlottableData:
-        x, data = self.__base_data()
+        x, data = self._data_input['x'], self._data_input['data']
         data = (data+self._data_input['b'])*self._data_input['a']
+        self._data_output = {
+            'x': x,
+            'data': data,
+        }
         return PlottableData(
             data=data,
             x=x
         )
 
     def get_input_plotter(self) -> DataPlotter:
-        x, data = self.__base_data()
+        x, data = self._data_input['x'], self._data_input['data']
         p = DataPlotter(PlottableData(data=data, x=x),
                         xlabel='x label', ylabel='y label', data_label='data label', title='title')
         return p
@@ -47,143 +69,319 @@ class TestProcess(Process):
         p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='data label', title='title')
         return p
 
-    def save_progress(self, group: h5py.Group, **kwargs):
-        print(f'Fake saving a = {self._data_input["a"]}, b = {self._data_input["b"]}')
+    def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
+        with LOCK:
+            data_to_json(
+                datas=[np.asanyarray(v) for v in list(self._data_input.values()) + list(self._data_output.values())],
+                names=[f'in_{k}' for k in self._data_input.keys()] + [f'out_{k}' for k in self._data_output.keys()],
+                filepath=filepath,
+                )
 
     @classmethod
-    def load_progress(cls, group: h5py.Group) -> Process:
-        print(f'Fake Loading a = 2, b = 5')
+    def load_progress(cls, filepath, **kwargs) -> TestProcess:  #group: h5py.Group) -> Process:
+        with LOCK:
+            data = data_from_json(filepath)
         inst = cls()
-        inst._data_input = dict(a=2, b=5)
+        inst._data_input = dict(a=float(data['in_a']), b=float(data['in_b']), x=data['in_x'], data=data['in_data'])
+        inst._data_output = dict(x=data['out_x'], data=data['out_data'])
         return inst
 
 
+class Test2Process(Process):
+    def input_data(self, x, data, c):
+        self._data_input = dict(x=x, data=data, c=c)
 
-class TestInterface(ProcessInterface):
-    # Collect all component ids used
-    class ids:
-        in_a = f'component=generic, subcomponent=generic, key=in_a'
-        in_b = f'component=generic, subcomponent=generic, key=in_b'
-        value_div = f'component=generic, subcomponent=generic, key=value_div'
-        value_dict = f'component=generic, subcomponent=generic, key=value_dict'
-        graph_out = f'component=generic, subcomponent=generic, key=graph_out'
-        graph_in = f'component=generic, subcomponent=generic, key=graph_in'
+    def preprocess(self):
+        pass
 
-    # Make the ids class a public class
-    ids = ids
-
-    def required_input_components(self) -> dict:
-        in_a = dbc.Input(id=self.ids.in_a, type='number')
-        in_b = dbc.Input(id=self.ids.in_b, type='number')
-        value_div = html.Div(id=self.ids.value_div)
-        value_dict = dcc.Store(id=self.ids.value_dict, storage_type='memory')
-        d = {
-            in_a.id: in_a,
-            in_b.id: in_b,
-            value_div.id: value_div,
-            value_dict.id: value_dict,
+    def output_data(self) -> PlottableData:
+        x, data, c = self._data_input['x'], self._data_input['data'], self._data_input['c']
+        x = x*c
+        self._data_output = {
+            'x': x,
+            'data': data,
         }
-        return d
+        return PlottableData(
+            data=data,
+            x=x
+        )
 
-    def all_outputs(self) -> dict:
-        in_graph = dcc.Graph(id=self.ids.graph_in)
-        out_graph = dcc.Graph(id=self.ids.graph_out)
-        return {
-            in_graph.id: in_graph,
-            out_graph.id: out_graph,
-        }
+    def get_input_plotter(self) -> DataPlotter:
+        x, data, c = self._data_input['x'], self._data_input['data'], self._data_input['c']
+        p = DataPlotter(PlottableData(data=data, x=x),
+                        xlabel='x label', ylabel='y label', data_label='data label', title='input c')
+        return p
 
-    def main_outputs(self) -> List[ProcessComponentOutput]:
-        return self.all_outputs()
+    def get_output_plotter(self) -> DataPlotter:
+        p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='output c',
+                        title='title')
+        return p
 
+    def save_progress(self, **kwargs):  #, group: h5py.Group, **kwargs):
+        with LOCK:
+            data_to_json(
+                datas=[np.asanyarray(v) for v in list(self._data_input.values()) + list(self._data_output.values())],
+                names=[f'in_{k}' for k in self._data_input.keys()] + [f'out_{k}' for k in self._data_output.keys()],
+                filepath=TEST_FILE,
+            )
+
+    @classmethod
+    def load_progress(cls, **kwargs) -> Test2Process:  #group: h5py.Group) -> Process:
+        with LOCK:
+            data = data_from_json(TEST_FILE)
+        inst = cls()
+        inst._data_input = dict(x=data['in_x'], data=data['in_data'], c=float(data['in_c']))
+        inst._data_output = dict(x=float(data['out_x']), data=float(data['out_data']))
+        return inst
+
+
+class TestInterface2:
     @staticmethod
-    @callback(
-        Output(ids.value_dict, 'data'),
-        Input(ids.in_a, 'value'),
-        Input(ids.in_b, 'value'),
-    )
-    def update_store(a, b) -> dict:
-        a = a if a else 1
-        b = b if b else 0
-        return dict(a=a, b=b)
+    def id(key) -> str:
+        # TODO: "Test" should be changeable/settable somehow
+        return f'Test-{key}'
+    _NOT_SET = object()
 
-    @staticmethod
-    @callback(
-        Output(ids.value_div, 'children'),
-        Input(ids.value_dict, 'data'),
-    )
-    def update_div(inputs: dict) -> str:
-        return f'Using: {inputs}'
+    # Standard IDs
+    sanitized_store_id = id('store-sanitized')
+    output_store_id = id('store-output')
+
+    # User Input IDs
+    input_a_id = id('input-a')
+    input_b_id = id('input-b')
+
+    # Other Required Input IDs
+    datpicker_id = _NOT_SET
+
+    # Data input IDs
+    data_input_id = _NOT_SET
+
+    def make_user_inputs(self) -> html.Div:
+        """Make user input components and return layout
+        Note: keeping track of the IDs as well
+
+        Also include sanitized_store
+        """
+        in_a = dbc.Input(id=self.input_a_id, type='number')
+        in_b = dbc.Input(id=self.input_b_id, type='number')
+        return html.Div([
+            label_component(in_a, 'Input A'),
+            label_component(in_b, 'Input B'),
+        ])
+
+    def get_stores(self) -> html.Div:
+        """Get the stores that need to be placed somewhere on the page"""
+        sanitized_store = dcc.Store(id=self.sanitized_store_id)
+        output_store = dcc.Store(id=self.output_store_id)
+        return html.Div([
+            sanitized_store,
+            output_store,
+        ])
+
+    def set_other_input_ids(self, datpicker_id: str):
+        """Get the IDs for other required inputs"""
+        self.datpicker_id = datpicker_id
+
+    def set_data_input_ids(self, data_input_id: str):
+        """Get the IDs for data inputs"""
+        self.data_input_id = data_input_id
+
+    def callback_sanitized_store(self):
+        """Callback to update a store with inputs which are sanitized (including other required inputs, but excluding data)"""
+        assert self.datpicker_id is not self._NOT_SET
+
+        @callback(
+            Output(self.sanitized_store_id, 'data'),
+            Input(self.input_a_id, 'value'),
+            Input(self.input_b_id, 'value'),
+            # Input(self.datpicker_id, 'value'),
+        )
+        def update_sanitized_store(a, b):
+            a = a if a else 1
+            b = b if b else 0
+            return dict(a=a, b=b)
+
+    def display_santized_inputs(self) -> html.Div:
+        """Make display for sanitized inputs and run callback (from sanitized store)"""
+        md_id = self.id('md-sanitized')  # Should never need to be used by anything else, only the callback here
+        output = html.Div(
+            dcc.Markdown(
+                id=md_id,
+                style={'white-space': 'pre'}
+            ))
+
+        @callback(
+            Output(md_id, 'children'),
+            Input(self.sanitized_store_id, 'data')
+        )
+        def update_sanitized_display(s: dict):
+            if s:
+                return f'''
+                Using:
+                \ta = {s['a']:.4f} 
+                \tb = {s['b']:.4f}
+                '''
+            return 'Nothing to show yet'
+
+        return output
+
+    def callback_output_store(self):
+        """Update output store using sanitized inputs and data"""
+        @callback(
+            Output(self.output_store_id, 'data'),
+            Input(self.sanitized_store_id, 'data'),
+            Input(self.data_input_id, 'data'),
+        )
+        def update_output_store(inputs: dict, data: dict):
+            # Only get the data from the data_store that we want here
+            useful_x, useful_data = [get_data(data[key]) for key in ['x_a', 'data_a']]
+
+            # Do the Processing
+            process = TestProcess()
+            process.input_data(a=inputs['a'], b=inputs['b'], x=useful_x, data=useful_data)
+            out = process.output_data()
+
+            # Rather than pass big datasets etc, save the Process and return the location to load it
+            process.save_progress(TEST_FILE)
+            return TEST_FILE
 
 
-    @staticmethod
-    @callback(
-        Output(ids.graph_out, 'figure'),
-        Input(ids.value_dict, 'data'),
-    )
-    def make_graph_out(inputs: dict) -> go.Figure:
-        a = inputs['a']
-        b = inputs['b']
-        p = TestProcess()
-        p.input_data(a, b)
-        plotter = p.get_output_plotter()
-        fig = plotter.plot_1d()
-        return fig
+    def display_self(self) -> html.Div:
+        """Make display for input/output and run callback
+        TODO: How to account for general controls like setting x-min/max for viewing
+        TODO: Don't want to always have to display Input and Output
+        """
+        in_graph_id = self.id('graph-in')
+        out_graph_id = self.id('graph-out')
+        output = html.Div([
+            dbc.Card([
+                dcc.Graph(id=in_graph_id)
+            ]),
+            dbc.Card([
+                dcc.Graph(id=out_graph_id)
+            ]),
+        ]
+        )
 
-    @staticmethod
-    @callback(
-        Output(ids.graph_in, 'figure'),
-        Input(ids.value_dict, 'data'),
-    )
-    def make_graph_in(inputs: dict) -> go.Figure:
-        a = inputs['a']
-        b = inputs['b']
-        p = TestProcess()
-        p.input_data(a, b)
-        plotter = p.get_input_plotter()
-        fig = plotter.plot_1d()
-        fig.add_hline(a*b)
-        return fig
+        @callback(
+            Output(out_graph_id, 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_output_graph(out_store):
+            if out_store:
+                process = TestProcess.load_progress(out_store)
+                graph = process.get_output_plotter().plot_1d()
+                return graph
+            return go.Figure()
+
+        @callback(
+            Output(in_graph_id, 'figure'),
+            Input(self.output_store_id, 'data'),
+            # TODO: Below may let me separate processing step?
+            # Input(self.sanitized_store_id, 'data'),
+            # Input(self.data_input_id, 'data'),
+        )
+        def update_input_graph(out_store):
+            if out_store:
+                process = TestProcess.load_progress(out_store)
+                fig = process.get_input_plotter().plot_1d()
+                fig.add_hline(process._data_input['a']*process._data_input['b'])
+                return fig
+            return go.Figure()
+
+        return output
+
+
+
+
+# class TestInterface(ProcessInterface):
+#     # Collect all component ids used
+#     class ids:
+#         in_a = f'component=generic, subcomponent=generic, key=in_a'
+#         in_b = f'component=generic, subcomponent=generic, key=in_b'
+#         value_div = f'component=generic, subcomponent=generic, key=value_div'
+#         value_dict = f'component=generic, subcomponent=generic, key=value_dict'
+#         graph_out = f'component=generic, subcomponent=generic, key=graph_out'
+#         graph_in = f'component=generic, subcomponent=generic, key=graph_in'
+#
+#     # Make the ids class a public class
+#     ids = ids
+#
+#     def required_input_components(self) -> dict:
+#         in_a = dbc.Input(id=self.ids.in_a, type='number')
+#         in_b = dbc.Input(id=self.ids.in_b, type='number')
+#         value_div = html.Div(id=self.ids.value_div)
+#         value_dict = dcc.Store(id=self.ids.value_dict, storage_type='memory')
+#         d = {
+#             in_a.id: in_a,
+#             in_b.id: in_b,
+#             value_div.id: value_div,
+#             value_dict.id: value_dict,
+#         }
+#         return d
+#
+#     def all_outputs(self) -> dict:
+#         in_graph = dcc.Graph(id=self.ids.graph_in)
+#         out_graph = dcc.Graph(id=self.ids.graph_out)
+#         return {
+#             in_graph.id: in_graph,
+#             out_graph.id: out_graph,
+#         }
+#
+#     def main_outputs(self) -> List[ProcessComponentOutput]:
+#         return self.all_outputs()
+#
+#     @staticmethod
+#     @callback(
+#         Output(ids.value_dict, 'data'),
+#         Input(ids.in_a, 'value'),
+#         Input(ids.in_b, 'value'),
+#     )
+#     def update_store(a, b) -> dict:
+#         a = a if a else 1
+#         b = b if b else 0
+#         return dict(a=a, b=b)
+#
+#     @staticmethod
+#     @callback(
+#         Output(ids.value_div, 'children'),
+#         Input(ids.value_dict, 'data'),
+#     )
+#     def update_div(inputs: dict) -> str:
+#         return f'Using: {inputs}'
+#
+#
+#     @staticmethod
+#     @callback(
+#         Output(ids.graph_out, 'figure'),
+#         Input(ids.value_dict, 'data'),
+#     )
+#     def make_graph_out(inputs: dict) -> go.Figure:
+#         a = inputs['a']
+#         b = inputs['b']
+#         p = TestProcess()
+#         p.input_data(a, b)
+#         plotter = p.get_output_plotter()
+#         fig = plotter.plot_1d()
+#         return fig
+#
+#     @staticmethod
+#     @callback(
+#         Output(ids.graph_in, 'figure'),
+#         Input(ids.value_dict, 'data'),
+#     )
+#     def make_graph_in(inputs: dict) -> go.Figure:
+#         a = inputs['a']
+#         b = inputs['b']
+#         p = TestProcess()
+#         p.input_data(a, b)
+#         plotter = p.get_input_plotter()
+#         fig = plotter.plot_1d()
+#         fig.add_hline(a*b)
+#         return fig
 
 
 #
-# class TestProcess2(Process):
-#     def input_data(self, x, data, c):
-#         self._data_input = dict(x=x, data=data, c=c)
-#
-#     def preprocess(self):
-#         pass
-#
-#     def output_data(self) -> PlottableData:
-#         x, data, c = self._data_input['x'], self._data_input['data'], self._data_input['c']
-#         x = x*c
-#         return PlottableData(
-#             data=data,
-#             x=x
-#         )
-#
-#     def get_input_plotter(self) -> DataPlotter:
-#         x, data, c = self._data_input['x'], self._data_input['data'], self._data_input['c']
-#         p = DataPlotter(PlottableData(data=data, x=x),
-#                         xlabel='x label', ylabel='y label', data_label='data label', title='title')
-#         return p
-#
-#     def get_output_plotter(self) -> DataPlotter:
-#         p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='data label',
-#                         title='title')
-#         return p
-#
-#     def save_progress(self, group: h5py.Group, **kwargs):
-#         raise NotImplementedError
-#         print(f'Fake saving a = {self._data_input["a"]}, b = {self._data_input["b"]}')
-#
-#     @classmethod
-#     def load_progress(cls, group: h5py.Group) -> Process:
-#         raise NotImplementedError
-#         print(f'Fake Loading a = 2, b = 5')
-#         inst = cls()
-#         inst._data_input = dict(a=2, b=5)
-#         return inst
 #
 #
 # class TestInterface2(TestInterface):
@@ -207,20 +405,51 @@ class TestInterface(ProcessInterface):
 #         pass
 
 
-def layout():
-    print(TestInterface().all_outputs())
-    return html.Div([
+
+# Actually make the page
+
+# Fake some data for testing
+x, data = np.linspace(0, 10, 100), np.sin(np.linspace(0, 10, 100))
+data_store_id = 'TESTING-data-store'
+FAKE_DATA_STORE = dcc.Store(id=data_store_id, data={'x_a': x, 'data_a': data})
+
+# Initialize Interfaces that help make dash page
+TI = TestInterface2()
+TI.set_data_input_ids(data_input_id=data_store_id)
+TI.set_other_input_ids(datpicker_id='fake')
+inputs = TI.make_user_inputs()
+sanitized_inputs = TI.display_santized_inputs()
+stores = TI.get_stores()
+outputs = TI.display_self()
+TI.callback_sanitized_store()
+TI.callback_output_store()
+
+layout = html.Div([
+    FAKE_DATA_STORE,
+    stores,
         dbc.Row([
-            dbc.Col([v for k, v in TestInterface().required_input_components().items()], width=3),
-            dbc.Col([v for k, v in TestInterface().all_outputs().items()], width=9),
+            dbc.Col([inputs, sanitized_inputs], width=3),
+            dbc.Col([outputs], width=9),
         ])
     ]
     )
 
 
+# def layout():
+#
+#     return html.Div([
+#         dbc.Row([
+#             dbc.Col([v for k, v in TestInterface().required_input_components().items()], width=3),
+#             dbc.Col([v for k, v in TestInterface().all_outputs().items()], width=9),
+#         ])
+#     ]
+#     )
+
+
 if __name__ == '__main__':
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-    app.layout = layout()
+    # app.layout = layout()
+    app.layout = layout
     app.run_server(debug=True, port=8051)
 else:
     dash.register_page(__name__)
