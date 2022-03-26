@@ -9,7 +9,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
-from dash_data_viewer.process_dash_extensions import ProcessInterface, ProcessComponentInput, ProcessComponentOutput, ProcessComponentOutputGraph, DashEnabledProcess
+from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET
 from dash_data_viewer.layout_util import label_component
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
@@ -63,11 +63,11 @@ class TestProcess(Process):
     def get_input_plotter(self) -> DataPlotter:
         x, data = self._data_input['x'], self._data_input['data']
         p = DataPlotter(PlottableData(data=data, x=x),
-                        xlabel='x label', ylabel='y label', data_label='data label', title='title')
+                        xlabel='x label', ylabel='y label', data_label='data label', title='input a and b')
         return p
 
     def get_output_plotter(self) -> DataPlotter:
-        p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='data label', title='title')
+        p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='data label', title='output a and b')
         return p
 
     def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
@@ -115,7 +115,7 @@ class Test2Process(Process):
 
     def get_output_plotter(self) -> DataPlotter:
         p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='output c',
-                        title='title')
+                        title='output c')
         return p
 
     def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
@@ -202,7 +202,7 @@ class TestInterface2:
             b = b if b else 0
             return dict(a=a, b=b)
 
-    def display_santized_inputs(self) -> html.Div:
+    def display_sanitized_inputs(self) -> html.Div:
         """Make display for sanitized inputs and run callback (from sanitized store)"""
         md_id = self.id('md-sanitized')  # Should never need to be used by anything else, only the callback here
         output = html.Div(
@@ -293,27 +293,34 @@ class TestInterface2:
         return output
 
 
-class Test2Interface2:
-    @staticmethod
-    def id(key) -> str:
-        # TODO: "Test" should be changeable/settable somehow
-        return f'Test2-{key}'
-    _NOT_SET = object()
 
-    # Standard IDs
-    sanitized_store_id = id('store-sanitized')
-    output_store_id = id('store-output')
+class Test2Interface2(ProcessInterface):
+    id_prefix = 'Test2'
+    def __init__(self):
+        ID = self.ID
 
-    # User Input IDs
-    input_c_id = id('input-c')
+        # User Input IDs
+        self.input_c_id = ID('input-c')
 
-    # Other Required Input IDs
-    datpicker_id = _NOT_SET
+        # Other Required Input IDs
+        self.datpicker_id = NOT_SET
 
-    # Data input IDs
-    data_input_id = _NOT_SET
+        # Data input IDs
+        self.data_input_id = NOT_SET
 
-    def make_user_inputs(self) -> html.Div:
+        # Display IDs
+        self.in_graph_id = ID('graph-in')
+        self.out_graph_id = ID('graph-out')
+
+    def set_other_input_ids(self, datpicker_id: str):
+        """Get the IDs for other required inputs"""
+        self.datpicker_id = datpicker_id
+
+    def set_data_input_ids(self, data_input_id: str):
+        """Get the IDs for data inputs"""
+        self.data_input_id = data_input_id
+
+    def get_user_inputs_layout(self) -> html.Div:
         """Make user input components and return layout
         Note: keeping track of the IDs as well
 
@@ -324,26 +331,9 @@ class Test2Interface2:
             label_component(in_c, 'Input C'),
         ])
 
-    def get_stores(self) -> html.Div:
-        """Get the stores that need to be placed somewhere on the page"""
-        sanitized_store = dcc.Store(id=self.sanitized_store_id)
-        output_store = dcc.Store(id=self.output_store_id)
-        return html.Div([
-            sanitized_store,
-            output_store,
-        ])
-
-    def set_other_input_ids(self, datpicker_id: str):
-        """Get the IDs for other required inputs"""
-        self.datpicker_id = datpicker_id
-
-    def set_data_input_ids(self, data_input_id: str):
-        """Get the IDs for data inputs"""
-        self.data_input_id = data_input_id
-
     def callback_sanitized_store(self):
         """Callback to update a store with inputs which are sanitized (including other required inputs, but excluding data)"""
-        assert self.datpicker_id is not self._NOT_SET
+        assert self.datpicker_id is not NOT_SET
 
         @callback(
             Output(self.sanitized_store_id, 'data'),
@@ -354,28 +344,8 @@ class Test2Interface2:
             c = c if c else 10
             return dict(c=c)
 
-    def display_santized_inputs(self) -> html.Div:
-        """Make display for sanitized inputs and run callback (from sanitized store)"""
-        md_id = self.id('md-sanitized')  # Should never need to be used by anything else, only the callback here
-        output = html.Div(
-            dcc.Markdown(
-                id=md_id,
-                style={'white-space': 'pre'}
-            ))
-
-        @callback(
-            Output(md_id, 'children'),
-            Input(self.sanitized_store_id, 'data')
-        )
-        def update_sanitized_display(s: dict):
-            if s:
-                return f'''
-                Using:
-                \tc = {s['c']:.4f}
-                '''
-            return 'Nothing to show yet'
-
-        return output
+    def info_for_sanitized_display(self) -> List[Union[str, dict]]:
+        return [{'key':'c', 'name':'Input C', 'format':'.1f'}]
 
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
@@ -400,36 +370,37 @@ class Test2Interface2:
             return TEST_FILE2
 
 
-    def display_self(self) -> html.Div:
-        """Make display for input/output and run callback
-        TODO: How to account for general controls like setting x-min/max for viewing
-        TODO: Don't want to always have to display Input and Output
+    def get_input_display_layout(self) -> html.Div:
         """
-        in_graph_id = self.id('graph-in')
-        out_graph_id = self.id('graph-out')
-        output = html.Div([
+        Make display layout for inputs
+        Returns:
+
+        """
+        layout = html.Div([
             dbc.Card([
-                dcc.Graph(id=in_graph_id)
-            ]),
-            dbc.Card([
-                dcc.Graph(id=out_graph_id)
+                dcc.Graph(id=self.in_graph_id)
             ]),
         ]
         )
+        return layout
 
-        @callback(
-            Output(out_graph_id, 'figure'),
-            Input(self.output_store_id, 'data'),
+
+    def get_output_display_layout(self) -> html.Div:
+        """Make display layout for output
+        """
+        output = html.Div([
+            dbc.Card([
+                dcc.Graph(id=self.out_graph_id)
+            ]),
+        ]
         )
-        def update_output_graph(out_store):
-            if out_store:
-                process = Test2Process.load_progress(out_store)
-                graph = process.get_output_plotter().plot_1d()
-                return graph
-            return go.Figure()
+        return output
+
+    def callback_input_display(self):
+        """Run callback for input display"""
 
         @callback(
-            Output(in_graph_id, 'figure'),
+            Output(self.in_graph_id, 'figure'),
             Input(self.output_store_id, 'data'),
             # TODO: Below may let me separate processing step?
             # Input(self.sanitized_store_id, 'data'),
@@ -443,120 +414,22 @@ class Test2Interface2:
                 return fig
             return go.Figure()
 
-        return output
+    def callback_output_display(self):
+        """
+        Run callback for output display
+        Returns:
 
-
-
-
-# class TestInterface(ProcessInterface):
-#     # Collect all component ids used
-#     class ids:
-#         in_a = f'component=generic, subcomponent=generic, key=in_a'
-#         in_b = f'component=generic, subcomponent=generic, key=in_b'
-#         value_div = f'component=generic, subcomponent=generic, key=value_div'
-#         value_dict = f'component=generic, subcomponent=generic, key=value_dict'
-#         graph_out = f'component=generic, subcomponent=generic, key=graph_out'
-#         graph_in = f'component=generic, subcomponent=generic, key=graph_in'
-#
-#     # Make the ids class a public class
-#     ids = ids
-#
-#     def required_input_components(self) -> dict:
-#         in_a = dbc.Input(id=self.ids.in_a, type='number')
-#         in_b = dbc.Input(id=self.ids.in_b, type='number')
-#         value_div = html.Div(id=self.ids.value_div)
-#         value_dict = dcc.Store(id=self.ids.value_dict, storage_type='memory')
-#         d = {
-#             in_a.id: in_a,
-#             in_b.id: in_b,
-#             value_div.id: value_div,
-#             value_dict.id: value_dict,
-#         }
-#         return d
-#
-#     def all_outputs(self) -> dict:
-#         in_graph = dcc.Graph(id=self.ids.graph_in)
-#         out_graph = dcc.Graph(id=self.ids.graph_out)
-#         return {
-#             in_graph.id: in_graph,
-#             out_graph.id: out_graph,
-#         }
-#
-#     def main_outputs(self) -> List[ProcessComponentOutput]:
-#         return self.all_outputs()
-#
-#     @staticmethod
-#     @callback(
-#         Output(ids.value_dict, 'data'),
-#         Input(ids.in_a, 'value'),
-#         Input(ids.in_b, 'value'),
-#     )
-#     def update_store(a, b) -> dict:
-#         a = a if a else 1
-#         b = b if b else 0
-#         return dict(a=a, b=b)
-#
-#     @staticmethod
-#     @callback(
-#         Output(ids.value_div, 'children'),
-#         Input(ids.value_dict, 'data'),
-#     )
-#     def update_div(inputs: dict) -> str:
-#         return f'Using: {inputs}'
-#
-#
-#     @staticmethod
-#     @callback(
-#         Output(ids.graph_out, 'figure'),
-#         Input(ids.value_dict, 'data'),
-#     )
-#     def make_graph_out(inputs: dict) -> go.Figure:
-#         a = inputs['a']
-#         b = inputs['b']
-#         p = TestProcess()
-#         p.input_data(a, b)
-#         plotter = p.get_output_plotter()
-#         fig = plotter.plot_1d()
-#         return fig
-#
-#     @staticmethod
-#     @callback(
-#         Output(ids.graph_in, 'figure'),
-#         Input(ids.value_dict, 'data'),
-#     )
-#     def make_graph_in(inputs: dict) -> go.Figure:
-#         a = inputs['a']
-#         b = inputs['b']
-#         p = TestProcess()
-#         p.input_data(a, b)
-#         plotter = p.get_input_plotter()
-#         fig = plotter.plot_1d()
-#         fig.add_hline(a*b)
-#         return fig
-
-
-#
-#
-#
-# class TestInterface2(TestInterface):
-#     id_c_input = 'c_input_id'
-#
-#     def required_input_components(self) -> List[Union[ProcessComponentInput, List[ProcessComponentInput]]]:
-#         existing_inputs = super().required_input_components()
-#         input = dbc.Input(self.id_c_input, type='number')
-#         input_w_label = html.Div([
-#             dbc.Label('Input C'),
-#             input
-#         ])
-#         existing_inputs.update({self.id_c_input: input_w_label})
-#         return existing_inputs
-#
-#     def all_outputs(self) -> List[ProcessComponentOutput]:
-#         in
-#         pass
-#
-#     def main_outputs(self) -> List[ProcessComponentOutput]:
-#         pass
+        """
+        @callback(
+            Output(self.out_graph_id, 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_output_graph(out_store):
+            if out_store:
+                process = Test2Process.load_progress(out_store)
+                graph = process.get_output_plotter().plot_1d()
+                return graph
+            return go.Figure()
 
 
 
@@ -572,23 +445,29 @@ TI = TestInterface2()
 TI.set_data_input_ids(data_input_id=data_store_id)
 TI.set_other_input_ids(datpicker_id='fake')
 inputs = TI.make_user_inputs()
-sanitized_inputs = TI.display_santized_inputs()
+sanitized_inputs = TI.display_sanitized_inputs()
 stores = TI.get_stores()
 outputs = TI.display_self()
 TI.callback_sanitized_store()
 TI.callback_output_store()
 
 
+# Use second ProcessInterface that builds on first
 TI2 = Test2Interface2()
 TI2.set_data_input_ids(data_input_id=TI.output_store_id)
 TI2.set_other_input_ids(datpicker_id='fake')
-inputs2 = TI2.make_user_inputs()
-sanitized_inputs2 = TI2.display_santized_inputs()
+inputs2 = TI2.get_user_inputs_layout()
+sanitized_inputs2 = TI2.get_sanitized_inputs_layout()
 stores2 = TI2.get_stores()
-outputs2 = TI2.display_self()
+display_output = TI2.get_output_display_layout()
+display_input = TI2.get_input_display_layout()
 TI2.callback_sanitized_store()
 TI2.callback_output_store()
+TI2.callback_sanitized_inputs()
+TI2.callback_output_display()
+TI2.callback_input_display()
 
+# Put everything together into a layout
 layout = html.Div([
     FAKE_DATA_STORE,
     stores,
@@ -601,7 +480,7 @@ layout = html.Div([
                 width=3),
             dbc.Col([
                 dbc.Card([outputs]),
-                dbc.Card([outputs2]),
+                dbc.Card([display_input, display_output]),
             ], width=9),
         ])
     ]

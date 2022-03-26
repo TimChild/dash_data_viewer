@@ -4,58 +4,22 @@ Provide the dash functionality to dat_analysis Process
 from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, List, Union
-from dash import html, dcc
+from dash import html, dcc, callback, Output, Input
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import dash
 import uuid
 
 from dat_analysis.analysis_tools.new_procedures import Process, SeparateSquareProcess
+from dash_data_viewer.layout_util import label_component
+import dash_data_viewer.components as c
 
 from dash_data_viewer.components import CollapseAIO
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
 
-
-class DashEnabledProcess(Process, abc.ABC):
-    @abc.abstractmethod
-    def dash_full(self, *args, **kwargs) -> Component:
-        """
-        Combine multiple figures/text/etc to make an output component
-        (can assume 3/4 page wide, any height)
-        Args:
-
-        Returns:
-
-        """
-        input_plotter = self.get_input_plotter()
-        output_plotter = self.get_output_plotter()
-
-        input_fig = ProcessComponentOutputGraph(fig=input_plotter.plot_1d())
-        output_fig = ProcessComponentOutputGraph(fig=output_plotter.plot_1d())
-
-        return html.Div([
-            input_fig.layout(),
-            output_fig.layout()
-        ])
-
-        pass
-
-    def _dash_children_full(self) -> html.Div:
-        collapses = []
-        for child in self.child_processes:
-            collapses.append(CollapseAIO(aio_id=None, content=child.dash_full(), button_text=child.default_name,
-                                         start_open=False))
-        return html.Div(collapses)
-
-    @abc.abstractmethod
-    def mpl_full(self, *args, **kwargs):  # -> plt.Figure
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def pdf_full(self, *args, **kwargs):  # -> pdf
-        raise NotImplementedError
+NOT_SET = object()  # To be able to check if things still need to be set
 
 
 class ProcessInterface(abc.ABC):
@@ -65,125 +29,320 @@ class ProcessInterface(abc.ABC):
 
     human friendly input, and id of file to load from (or data passed in)
     """
-    id_prefix = 'DEFAULT'
 
-    def id(self, key) -> str:
-        return f'{self.id_prefix}-{key}'
-
+    @property
     @abc.abstractmethod
-    def user_inputs(self, *args, **kwargs) -> html.Div:
+    def id_prefix(self) -> str:
         """
-        Make the required user input components and return layout
-        Make sure all IDs are either saved or defined in class
-
-        Note: Mostly specific to this process, if using input from another component, make sure to save the ID
-
-        TODO: Make some helper function to make it easier to make simple labelled inputs
-        Args:
-            *args ():
-            **kwargs ():
-
-        Returns:
-
+        String to prepend to all IDs generated in this Interface
+        Note: Can just set a class attribute to override this
         """
-
-    @abc.abstractmethod
-    def other_inputs(self, *args, **kwargs):
-        """
-
-        Args:
-            *args ():
-            **kwargs ():
-
-        Returns:
-
-        """
-
-
-
-    @abc.abstractmethod
-    def required_input_components(self) -> List[Union[ProcessComponentInput, List[ProcessComponentInput]]]:
-        """
-        Give the list of components that need to be placed in order for the Process to be carried out
-        Should all update stores or possibly the dat file
-        Returns:
-
-        """
-        return []
-
-    @abc.abstractmethod
-    def all_outputs(self) -> List[ProcessComponentOutput]:
-        """List of components that display the process in detail"""
-        return []
-
-    @abc.abstractmethod
-    def main_outputs(self) -> List[ProcessComponentOutput]:
-        """List of components that display the main features of the process"""
-        return [self.all_outputs()[0]]
-
-
-class ProcessComponent(abc.ABC):
-    """
-    A dash component with callbacks etc to interface with user
-    """
-    # # Functions to create pattern-matching callbacks of the subcomponents
-    # class ids:
-    #     @staticmethod
-    #     def generic(aio_id, key: str):
-    #         return {
-    #             'component': 'TemplateAIO',
-    #             'subcomponent': f'generic',
-    #             'key': key,
-    #             'aio_id': aio_id,
-    #         }
-    #
-    # # Make the ids class a public class
-    # ids = ids
-    #
-    # def __init__(self, aio_id=None):
-    #     if aio_id is None:
-    #         aio_id = str(uuid.uuid4())
-    #
-    #     super().__init__(children=[])  # html.Div contains layout
-    #
-    # # UNCOMMENT -- This callback is run when module is imported regardless of use
-    # # @staticmethod
-    # # @callback(
-    # # )
-    # # def function():
-    # #     pass
-
-
-
-class ProcessComponentInput(ProcessComponent, abc.ABC):
-    """
-    Component mostly for user input
-    """
-
-    def __init__(self, title, num_buttons, etc):
-        super().__init__()
-
-
-class ProcessComponentOutput(ProcessComponent, abc.ABC):
-    """
-    Component mostly for output to graph/table/file etc
-    """
-
-
-class ProcessComponentOutputGraph(ProcessComponentOutput):
-    """
-    Component for displaying a figure (with additional options)
-    """
-
-    def __init__(self, fig: go.Figure):
-        super().__init__()
-        self.fig = fig
-
-    def layout(self):
-        return dcc.Graph(figure=self.fig)
-
-    def run_callbacks(self, **kwargs):
         pass
 
+    def ID(self, key):
+        return f'{self.id_prefix}-{key}'
+
+    # Set some IDs which will usually be used
+    @property
+    def sanitized_store_id(self) -> str:
+        return self.ID('store-sanitized')
+
+    @property
+    def output_store_id(self) -> str:
+        return self.ID('store-output')
+
+    @property
+    def sanitized_inputs_id(self) -> str:
+        return self.ID('md-sanitized')
+
+    # Common methods that usually won't need to be overridden
+    def get_stores(self) -> html.Div:
+        """
+        Put the stores into a div to be placed somewhere on the page
+        """
+        return html.Div([
+            dcc.Store(id=self.sanitized_store_id),
+            dcc.Store(id=self.output_store_id),
+        ])
+
+    def get_sanitized_inputs_layout(self) -> html.Div:
+        """Make display layout for sanitized inputs
+
+        Note: Can be overridden for more control over layout (override callback_sanitized_inputs as well)
+        """
+        output = html.Div(
+            dcc.Markdown(
+                id=self.sanitized_inputs_id,
+                style={'white-space': 'pre'}
+            ))
+        return output
+
+    def _sanitized_info_dicts(self) -> List[dict]:
+        info_to_display = self.info_for_sanitized_display()
+        full_info = []
+        for entry in info_to_display:
+            if isinstance(entry, str):
+                entry = dict(key=entry)
+            if 'key' not in entry:
+                raise KeyError(f'{entry} has no "key". Must provide "key" that matches the sanitized input store '
+                               f'in self.info_for_sanitized_display')
+            entry.setdefault('name', entry['key'])
+            entry.setdefault('format', '.3f')
+            full_info.append(entry)
+        return full_info
+
+    def callback_sanitized_inputs(self):
+        """Run callback for sanitized inputs display"""
+        info_to_display = self._sanitized_info_dicts()
+
+        @callback(
+            Output(self.sanitized_inputs_id, 'children'),
+            Input(self.sanitized_store_id, 'data')
+        )
+        def update_sanitized_display(s: dict):
+            if s:
+                md = 'Using:\n'
+                for d in info_to_display:
+                    md += f"\t{d['name']} = {s[d['key']]:{d['format']}}\n"
+                return md
+            return 'Nothing to show yet'
+
+    # Required methods
+    @abc.abstractmethod
+    def set_other_input_ids(self, *args):
+        """
+        Get the IDs of any other existing input components that will be used by this process (needed for callbacks)
+        Args:
+            *args ():
+
+        Returns:
+
+        """
+        pass
+
+    @abc.abstractmethod
+    def set_data_input_ids(self, *args):
+        """
+        Get the IDs of any data/process stores that are used in this Process (needed for callbacks)
+        Args:
+            *args ():
+
+        Returns:
+
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_user_inputs_layout(self) -> html.Div:
+        """
+        Make user input components and return layout
+        """
+        pass
+
+    @abc.abstractmethod
+    def callback_sanitized_store(self):
+        """
+        Callback to update the sanitized input store with information from user inputs and other inputs after setting
+        defaults and checking the inputs are OK (i.e. may use info from data_in to check bounds or make defaults etc)
+
+        Note: This is a good place to check all your existing inputs have been set
+            (i.e. assert self.existing_id is not NOT_SET)
+        Returns:
+
+        """
+
+    @abc.abstractmethod
+    def info_for_sanitized_display(self) -> List[Union[str, dict]]:
+        """
+        Generate list of which sanitized inputs should be displayed.
+        Return just keys to use default formatting for numbers only.
+        Or return a dict with 'key' and optionally other keys:
+            {'key': <key>, 'display_name': <name>, 'format': '.2f'}
+
+        Note: For ultimate control, override get_sanitized_inputs_layout and callback_sanitized_inputs
+            (in which case this method is not used)
+
+        Examples:
+            return ['a', 'b']  # Use default formatting to display inputs 'a' and 'b'
+
+            return [{'key': 'a', 'name': 'Input A', 'format': '.3g'}, 'b']  # Display input 'a' using 'Input A' as the
+                name, with '.3g' formatting for the value. Use default formatting to display input 'b'
+        """
+        pass
+
+    @abc.abstractmethod
+    def callback_output_store(self):
+        """
+        Callback to update output store using sanitized inputs and data
+        Returns:
+
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_input_display_layout(self):
+        """
+        Make display layout for inputs of Process (e.g. input data, with initial fit values)
+        Returns:
+
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_output_display_layout(self):
+        """
+        Make display layout for output of Process (e.g. data with fit)
+        Returns:
+
+        """
+        pass
+
+    @abc.abstractmethod
+    def callback_input_display(self):
+        """
+        Callback to update the input displays (e.g. input data with initial fit)
+        Returns:
+
+        """
+
+    @abc.abstractmethod
+    def callback_output_display(self):
+        """
+        Callback to update the output displays (e.g. input data with final fit)
+        Returns:
+
+        """
+        pass
+
+
+class TemplateProcessInterface(ProcessInterface):
+
+    id_prefix = 'TEMPLATE'
+
+    def __init__(self):
+        # Set up the non-standard IDs which will be used for various inputs/outputs
+        ID = self.ID  # Just to not have to write self.ID every time
+
+        # User Input IDs
+        self.input_a_id = ID('input-a')
+        self.input_b_id = ID('input-b')
+
+        # Other Required Input IDs
+        self.dat_id = NOT_SET
+        self.existing_input_id = NOT_SET
+
+        # Data input IDs
+        self.data_input_id = NOT_SET  # May just take data directly from some store/saved location
+        self.previous_process_id = NOT_SET  # Or may be easier to continue on from the output of another process
+
+        # Display IDs
+        self.in_graph_id = ID('graph-in')  # Display input to this Process (plus useful info, e.g. initial fit)
+        self.out_graph_id = ID('graph-out')  # Display output of this Process
+
+    def set_other_input_ids(self, dat_id, existing_c_id):
+        self.dat_id = dat_id
+        self.existing_input_id = existing_c_id
+
+    def set_data_input_ids(self, previous_process_id):
+        self.data_input_id = previous_process_id
+
+    def get_user_inputs_layout(self) -> html.Div:
+        in_a = dbc.Input(id=self.input_a_id, type='number')
+        in_b = dbc.Input(id=self.input_b_id, type='number')
+        return html.Div([
+            label_component(in_a, 'Input A'),
+            label_component(in_b, 'Input B'),
+        ])
+
+    def callback_sanitized_store(self):
+        assert self.existing_input_id is not NOT_SET
+
+        @callback(
+            Output(self.sanitized_store_id, 'data'),
+            Input(self.input_a_id, 'value'),
+            Input(self.input_b_id, 'value'),
+            Input(self.existing_input_id, 'value'),
+        )
+        def update_sanitized_store(a, b, c) -> dict:
+            a = a if a else 0
+            b = b if b else 10
+            c = c if a < c < b else (a + b) / 2
+            return dict(a=a, b=b, c=c)
+
+    def info_for_sanitized_display(self) -> List[Union[str, dict]]:
+        return [
+            {'key': 'a', 'name': 'Input A', 'format': '.1f'},  # For more control to display 'a'
+            'b',  # Use defaults to display 'b'
+            'c',  # Use defaults to display 'c'
+        ]
+
+    def callback_output_store(self):
+        """Update output store using sanitized inputs and data"""
+        assert self.dat_id is not NOT_SET
+
+        @callback(
+            Output(self.output_store_id, 'data'),
+            Input(self.dat_id, 'value'),
+            Input(self.sanitized_store_id, 'data'),
+            Input(self.data_input_id, 'data'),
+        )
+        def update_output_store(dat_id, inputs: dict, data_path: dict):
+            # # Get data from previous processing
+            # dat = get_dat(dat_id)
+            # with dat.open_hdf('read'):
+            #     group = dat.hdf.get(data_path)
+            #     pre_process = PreviousProcess.load_output(group)  # Or load whole Process
+            # out = pre_process.data_output
+            # useful_x, useful_data = out.x, out.data
+            #
+            # # Do the Processing
+            # process = ThisProcess()
+            # process.input_data(a=inputs['a'], b=inputs['b'], c=inputs['c'], x=useful_x, data=useful_data)
+            # out = process.output_data()
+            #
+            # # Rather than pass big datasets etc, save the Process and return the location to load it
+            # with dat.open_hdf('write'):
+            #     this_path = data_path+'/ThisProcess'
+            #     group = dat.hdf.require_group(this_path)
+            #     process.save_progress(group)
+            # return this_path
+            pass
+
+    def get_input_display_layout(self):
+        layout = html.Div([
+            c.GraphAIO(aio_id=self.in_graph_id)
+        ])
+        return layout
+
+    def get_output_display_layout(self):
+        layout = html.Div([
+            c.GraphAIO(aio_id=self.out_graph_id)
+        ])
+        return layout
+
+    def callback_input_display(self):
+        @callback(
+            Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_input_graph(out_store):
+            # if out_store:
+            #     process = ThisProcess.load_progress(out_store)
+            #     fig = process.get_input_plotter().plot_1d()
+            #     fig.add_hline(process.data_input['c'])
+            #     return fig
+            return go.Figure()
+
+    def callback_output_display(self):
+        @callback(
+            Output(c.GraphAIO.ids.graph(self.out_graph_id), 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_input_graph(out_store):
+            # if out_store:
+            #     process = ThisProcess.load_progress(out_store)
+            #     fig = process.get_output_plotter().plot_1d()
+            #     return fig
+            return go.Figure()
 
 
