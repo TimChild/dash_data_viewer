@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 LOCK = GlobalLock('test_file.txt.lock')
 TEST_FILE = 'test_file.txt'
+TEST_FILE2 = 'test_file2.txt'
 
 
 def get_data(data_or_location: Union[str, list]) -> np.ndarray:
@@ -117,21 +118,21 @@ class Test2Process(Process):
                         title='title')
         return p
 
-    def save_progress(self, **kwargs):  #, group: h5py.Group, **kwargs):
+    def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
         with LOCK:
             data_to_json(
                 datas=[np.asanyarray(v) for v in list(self._data_input.values()) + list(self._data_output.values())],
                 names=[f'in_{k}' for k in self._data_input.keys()] + [f'out_{k}' for k in self._data_output.keys()],
-                filepath=TEST_FILE,
+                filepath=filepath,
             )
 
     @classmethod
-    def load_progress(cls, **kwargs) -> Test2Process:  #group: h5py.Group) -> Process:
+    def load_progress(cls, filepath, **kwargs) -> Test2Process:  #group: h5py.Group) -> Process:
         with LOCK:
-            data = data_from_json(TEST_FILE)
+            data = data_from_json(filepath)
         inst = cls()
         inst._data_input = dict(x=data['in_x'], data=data['in_data'], c=float(data['in_c']))
-        inst._data_output = dict(x=float(data['out_x']), data=float(data['out_data']))
+        inst._data_output = dict(x=data['out_x'], data=data['out_data'])
         return inst
 
 
@@ -292,6 +293,159 @@ class TestInterface2:
         return output
 
 
+class Test2Interface2:
+    @staticmethod
+    def id(key) -> str:
+        # TODO: "Test" should be changeable/settable somehow
+        return f'Test2-{key}'
+    _NOT_SET = object()
+
+    # Standard IDs
+    sanitized_store_id = id('store-sanitized')
+    output_store_id = id('store-output')
+
+    # User Input IDs
+    input_c_id = id('input-c')
+
+    # Other Required Input IDs
+    datpicker_id = _NOT_SET
+
+    # Data input IDs
+    data_input_id = _NOT_SET
+
+    def make_user_inputs(self) -> html.Div:
+        """Make user input components and return layout
+        Note: keeping track of the IDs as well
+
+        Also include sanitized_store
+        """
+        in_c = dbc.Input(id=self.input_c_id, type='number')
+        return html.Div([
+            label_component(in_c, 'Input C'),
+        ])
+
+    def get_stores(self) -> html.Div:
+        """Get the stores that need to be placed somewhere on the page"""
+        sanitized_store = dcc.Store(id=self.sanitized_store_id)
+        output_store = dcc.Store(id=self.output_store_id)
+        return html.Div([
+            sanitized_store,
+            output_store,
+        ])
+
+    def set_other_input_ids(self, datpicker_id: str):
+        """Get the IDs for other required inputs"""
+        self.datpicker_id = datpicker_id
+
+    def set_data_input_ids(self, data_input_id: str):
+        """Get the IDs for data inputs"""
+        self.data_input_id = data_input_id
+
+    def callback_sanitized_store(self):
+        """Callback to update a store with inputs which are sanitized (including other required inputs, but excluding data)"""
+        assert self.datpicker_id is not self._NOT_SET
+
+        @callback(
+            Output(self.sanitized_store_id, 'data'),
+            Input(self.input_c_id, 'value'),
+            # Input(self.datpicker_id, 'value'),
+        )
+        def update_sanitized_store(c):
+            c = c if c else 10
+            return dict(c=c)
+
+    def display_santized_inputs(self) -> html.Div:
+        """Make display for sanitized inputs and run callback (from sanitized store)"""
+        md_id = self.id('md-sanitized')  # Should never need to be used by anything else, only the callback here
+        output = html.Div(
+            dcc.Markdown(
+                id=md_id,
+                style={'white-space': 'pre'}
+            ))
+
+        @callback(
+            Output(md_id, 'children'),
+            Input(self.sanitized_store_id, 'data')
+        )
+        def update_sanitized_display(s: dict):
+            if s:
+                return f'''
+                Using:
+                \tc = {s['c']:.4f}
+                '''
+            return 'Nothing to show yet'
+
+        return output
+
+    def callback_output_store(self):
+        """Update output store using sanitized inputs and data"""
+        @callback(
+            Output(self.output_store_id, 'data'),
+            Input(self.sanitized_store_id, 'data'),
+            Input(self.data_input_id, 'data'),
+        )
+        def update_output_store(inputs: dict, data: dict):
+            # Get data from previous processing  # TODO: Need to make this clearer
+            pre_process = TestProcess.load_progress(data)
+            out = pre_process.output_data()
+            useful_x, useful_data = out.x, out.data
+
+            # Do the Processing
+            process = Test2Process()
+            process.input_data(c=inputs['c'], x=useful_x, data=useful_data)
+            out = process.output_data()
+
+            # Rather than pass big datasets etc, save the Process and return the location to load it
+            process.save_progress(TEST_FILE2)
+            return TEST_FILE2
+
+
+    def display_self(self) -> html.Div:
+        """Make display for input/output and run callback
+        TODO: How to account for general controls like setting x-min/max for viewing
+        TODO: Don't want to always have to display Input and Output
+        """
+        in_graph_id = self.id('graph-in')
+        out_graph_id = self.id('graph-out')
+        output = html.Div([
+            dbc.Card([
+                dcc.Graph(id=in_graph_id)
+            ]),
+            dbc.Card([
+                dcc.Graph(id=out_graph_id)
+            ]),
+        ]
+        )
+
+        @callback(
+            Output(out_graph_id, 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_output_graph(out_store):
+            if out_store:
+                process = Test2Process.load_progress(out_store)
+                graph = process.get_output_plotter().plot_1d()
+                return graph
+            return go.Figure()
+
+        @callback(
+            Output(in_graph_id, 'figure'),
+            Input(self.output_store_id, 'data'),
+            # TODO: Below may let me separate processing step?
+            # Input(self.sanitized_store_id, 'data'),
+            # Input(self.data_input_id, 'data'),
+        )
+        def update_input_graph(out_store):
+            if out_store:
+                process = Test2Process.load_progress(out_store)
+                fig = process.get_input_plotter().plot_1d()
+                fig.add_hline(process._data_input['c'])
+                return fig
+            return go.Figure()
+
+        return output
+
+
 
 
 # class TestInterface(ProcessInterface):
@@ -424,12 +578,31 @@ outputs = TI.display_self()
 TI.callback_sanitized_store()
 TI.callback_output_store()
 
+
+TI2 = Test2Interface2()
+TI2.set_data_input_ids(data_input_id=TI.output_store_id)
+TI2.set_other_input_ids(datpicker_id='fake')
+inputs2 = TI2.make_user_inputs()
+sanitized_inputs2 = TI2.display_santized_inputs()
+stores2 = TI2.get_stores()
+outputs2 = TI2.display_self()
+TI2.callback_sanitized_store()
+TI2.callback_output_store()
+
 layout = html.Div([
     FAKE_DATA_STORE,
     stores,
+    stores2,
         dbc.Row([
-            dbc.Col([inputs, sanitized_inputs], width=3),
-            dbc.Col([outputs], width=9),
+            dbc.Col([
+                dbc.Card([inputs, sanitized_inputs]),
+                dbc.Card([inputs2, sanitized_inputs2]),
+                ],
+                width=3),
+            dbc.Col([
+                dbc.Card([outputs]),
+                dbc.Card([outputs2]),
+            ], width=9),
         ])
     ]
     )
