@@ -36,22 +36,18 @@ def get_data(data_or_location: Union[str, list]) -> np.ndarray:
 
 
 class TestProcess(Process):
-
     def __base_data(self) -> [np.ndarray, np.ndarray]:
         return np.linspace(0, 10, 100), np.sin(np.linspace(0, 10, 100))
 
     def input_data(self, a, b, x=None, data=None):
         if x is None or data is None:
             x, data = self.__base_data()
-        self._data_input = dict(a=a, b=b, x=x, data=data)
+        self.data_input = dict(a=a, b=b, x=x, data=data)
 
-    def preprocess(self):
-        pass
-
-    def output_data(self) -> PlottableData:
-        x, data = self._data_input['x'], self._data_input['data']
-        data = (data+self._data_input['b'])*self._data_input['a']
-        self._data_output = {
+    def process(self):
+        x, data = self.data_input['x'], self.data_input['data']
+        data = (data+self.data_input['b'])*self.data_input['a']
+        self.data_output = {
             'x': x,
             'data': data,
         }
@@ -61,20 +57,20 @@ class TestProcess(Process):
         )
 
     def get_input_plotter(self) -> DataPlotter:
-        x, data = self._data_input['x'], self._data_input['data']
+        x, data = self.data_input['x'], self.data_input['data']
         p = DataPlotter(PlottableData(data=data, x=x),
                         xlabel='x label', ylabel='y label', data_label='data label', title='input a and b')
         return p
 
     def get_output_plotter(self) -> DataPlotter:
-        p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='data label', title='output a and b')
+        p = DataPlotter(self.process(), xlabel='x label', ylabel='y label', data_label='data label', title='output a and b')
         return p
 
     def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
         with LOCK:
             data_to_json(
-                datas=[np.asanyarray(v) for v in list(self._data_input.values()) + list(self._data_output.values())],
-                names=[f'in_{k}' for k in self._data_input.keys()] + [f'out_{k}' for k in self._data_output.keys()],
+                datas=[np.asanyarray(v) for v in list(self.data_input.values()) + list(self.data_output.values())],
+                names=[f'in_{k}' for k in self.data_input.keys()] + [f'out_{k}' for k in self.data_output.keys()],
                 filepath=filepath,
                 )
 
@@ -83,22 +79,19 @@ class TestProcess(Process):
         with LOCK:
             data = data_from_json(filepath)
         inst = cls()
-        inst._data_input = dict(a=float(data['in_a']), b=float(data['in_b']), x=data['in_x'], data=data['in_data'])
-        inst._data_output = dict(x=data['out_x'], data=data['out_data'])
+        inst.data_input = dict(a=float(data['in_a']), b=float(data['in_b']), x=data['in_x'], data=data['in_data'])
+        inst.data_output = dict(x=data['out_x'], data=data['out_data'])
         return inst
 
 
 class Test2Process(Process):
     def input_data(self, x, data, c):
-        self._data_input = dict(x=x, data=data, c=c)
+        self.data_input = dict(x=x, data=data, c=c)
 
-    def preprocess(self):
-        pass
-
-    def output_data(self) -> PlottableData:
-        x, data, c = self._data_input['x'], self._data_input['data'], self._data_input['c']
+    def process(self) -> PlottableData:
+        x, data, c = self.data_input['x'], self.data_input['data'], self.data_input['c']
         x = x*c
-        self._data_output = {
+        self.data_output = {
             'x': x,
             'data': data,
         }
@@ -108,21 +101,21 @@ class Test2Process(Process):
         )
 
     def get_input_plotter(self) -> DataPlotter:
-        x, data, c = self._data_input['x'], self._data_input['data'], self._data_input['c']
+        x, data, c = self.data_input['x'], self.data_input['data'], self.data_input['c']
         p = DataPlotter(PlottableData(data=data, x=x),
                         xlabel='x label', ylabel='y label', data_label='data label', title='input c')
         return p
 
     def get_output_plotter(self) -> DataPlotter:
-        p = DataPlotter(self.output_data(), xlabel='x label', ylabel='y label', data_label='output c',
+        p = DataPlotter(self.process(), xlabel='x label', ylabel='y label', data_label='output c',
                         title='output c')
         return p
 
     def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
         with LOCK:
             data_to_json(
-                datas=[np.asanyarray(v) for v in list(self._data_input.values()) + list(self._data_output.values())],
-                names=[f'in_{k}' for k in self._data_input.keys()] + [f'out_{k}' for k in self._data_output.keys()],
+                datas=[np.asanyarray(v) for v in list(self.data_input.values()) + list(self.data_output.values())],
+                names=[f'in_{k}' for k in self.data_input.keys()] + [f'out_{k}' for k in self.data_output.keys()],
                 filepath=filepath,
             )
 
@@ -131,8 +124,8 @@ class Test2Process(Process):
         with LOCK:
             data = data_from_json(filepath)
         inst = cls()
-        inst._data_input = dict(x=data['in_x'], data=data['in_data'], c=float(data['in_c']))
-        inst._data_output = dict(x=data['out_x'], data=data['out_data'])
+        inst.data_input = dict(x=data['in_x'], data=data['in_data'], c=float(data['in_c']))
+        inst.data_output = dict(x=data['out_x'], data=data['out_data'])
         return inst
 
 
@@ -183,7 +176,7 @@ class TestInterface2:
         """Get the IDs for other required inputs"""
         self.datpicker_id = datpicker_id
 
-    def set_data_input_ids(self, data_input_id: str):
+    def setdata_input_ids(self, data_input_id: str):
         """Get the IDs for data inputs"""
         self.data_input_id = data_input_id
 
@@ -240,7 +233,7 @@ class TestInterface2:
             # Do the Processing
             process = TestProcess()
             process.input_data(a=inputs['a'], b=inputs['b'], x=useful_x, data=useful_data)
-            out = process.output_data()
+            out = process.process()
 
             # Rather than pass big datasets etc, save the Process and return the location to load it
             process.save_progress(TEST_FILE)
@@ -286,7 +279,7 @@ class TestInterface2:
             if out_store:
                 process = TestProcess.load_progress(out_store)
                 fig = process.get_input_plotter().plot_1d()
-                fig.add_hline(process._data_input['a']*process._data_input['b'])
+                fig.add_hline(process.data_input['a']*process.data_input['b'])
                 return fig
             return go.Figure()
 
@@ -357,13 +350,13 @@ class Test2Interface2(ProcessInterface):
         def update_output_store(inputs: dict, data: dict):
             # Get data from previous processing  # TODO: Need to make this clearer
             pre_process = TestProcess.load_progress(data)
-            out = pre_process.output_data()
+            out = pre_process.process()
             useful_x, useful_data = out.x, out.data
 
             # Do the Processing
             process = Test2Process()
             process.input_data(c=inputs['c'], x=useful_x, data=useful_data)
-            out = process.output_data()
+            out = process.process()
 
             # Rather than pass big datasets etc, save the Process and return the location to load it
             process.save_progress(TEST_FILE2)
@@ -410,7 +403,7 @@ class Test2Interface2(ProcessInterface):
             if out_store:
                 process = Test2Process.load_progress(out_store)
                 fig = process.get_input_plotter().plot_1d()
-                fig.add_hline(process._data_input['c'])
+                fig.add_hline(process.data_input['c'])
                 return fig
             return go.Figure()
 
@@ -442,7 +435,7 @@ FAKE_DATA_STORE = dcc.Store(id=data_store_id, data={'x_a': x, 'data_a': data})
 
 # Initialize Interfaces that help make dash page
 TI = TestInterface2()
-TI.set_data_input_ids(data_input_id=data_store_id)
+TI.setdata_input_ids(data_input_id=data_store_id)
 TI.set_other_input_ids(datpicker_id='fake')
 inputs = TI.make_user_inputs()
 sanitized_inputs = TI.display_sanitized_inputs()
