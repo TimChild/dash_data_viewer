@@ -39,15 +39,15 @@ class TestProcess(Process):
     def __base_data(self) -> [np.ndarray, np.ndarray]:
         return np.linspace(0, 10, 100), np.sin(np.linspace(0, 10, 100))
 
-    def input_data(self, a, b, x=None, data=None):
+    def set_inputs(self, a, b, x=None, data=None):
         if x is None or data is None:
             x, data = self.__base_data()
-        self.data_input = dict(a=a, b=b, x=x, data=data)
+        self.inputs = dict(a=a, b=b, x=x, data=data)
 
     def process(self):
-        x, data = self.data_input['x'], self.data_input['data']
-        data = (data+self.data_input['b'])*self.data_input['a']
-        self.data_output = {
+        x, data = self.inputs['x'], self.inputs['data']
+        data = (data+self.inputs['b'])*self.inputs['a']
+        self.outputs = {
             'x': x,
             'data': data,
         }
@@ -57,7 +57,7 @@ class TestProcess(Process):
         )
 
     def get_input_plotter(self) -> DataPlotter:
-        x, data = self.data_input['x'], self.data_input['data']
+        x, data = self.inputs['x'], self.inputs['data']
         p = DataPlotter(PlottableData(data=data, x=x),
                         xlabel='x label', ylabel='y label', data_label='data label', title='input a and b')
         return p
@@ -69,8 +69,8 @@ class TestProcess(Process):
     def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
         with LOCK:
             data_to_json(
-                datas=[np.asanyarray(v) for v in list(self.data_input.values()) + list(self.data_output.values())],
-                names=[f'in_{k}' for k in self.data_input.keys()] + [f'out_{k}' for k in self.data_output.keys()],
+                datas=[np.asanyarray(v) for v in list(self.inputs.values()) + list(self.outputs.values())],
+                names=[f'in_{k}' for k in self.inputs.keys()] + [f'out_{k}' for k in self.outputs.keys()],
                 filepath=filepath,
                 )
 
@@ -79,19 +79,19 @@ class TestProcess(Process):
         with LOCK:
             data = data_from_json(filepath)
         inst = cls()
-        inst.data_input = dict(a=float(data['in_a']), b=float(data['in_b']), x=data['in_x'], data=data['in_data'])
-        inst.data_output = dict(x=data['out_x'], data=data['out_data'])
+        inst.inputs = dict(a=float(data['in_a']), b=float(data['in_b']), x=data['in_x'], data=data['in_data'])
+        inst.outputs = dict(x=data['out_x'], data=data['out_data'])
         return inst
 
 
 class Test2Process(Process):
-    def input_data(self, x, data, c):
-        self.data_input = dict(x=x, data=data, c=c)
+    def set_inputs(self, x, data, c):
+        self.inputs = dict(x=x, data=data, c=c)
 
     def process(self) -> PlottableData:
-        x, data, c = self.data_input['x'], self.data_input['data'], self.data_input['c']
+        x, data, c = self.inputs['x'], self.inputs['data'], self.inputs['c']
         x = x*c
-        self.data_output = {
+        self.outputs = {
             'x': x,
             'data': data,
         }
@@ -101,7 +101,7 @@ class Test2Process(Process):
         )
 
     def get_input_plotter(self) -> DataPlotter:
-        x, data, c = self.data_input['x'], self.data_input['data'], self.data_input['c']
+        x, data, c = self.inputs['x'], self.inputs['data'], self.inputs['c']
         p = DataPlotter(PlottableData(data=data, x=x),
                         xlabel='x label', ylabel='y label', data_label='data label', title='input c')
         return p
@@ -114,8 +114,8 @@ class Test2Process(Process):
     def save_progress(self, filepath, **kwargs):  #, group: h5py.Group, **kwargs):
         with LOCK:
             data_to_json(
-                datas=[np.asanyarray(v) for v in list(self.data_input.values()) + list(self.data_output.values())],
-                names=[f'in_{k}' for k in self.data_input.keys()] + [f'out_{k}' for k in self.data_output.keys()],
+                datas=[np.asanyarray(v) for v in list(self.inputs.values()) + list(self.outputs.values())],
+                names=[f'in_{k}' for k in self.inputs.keys()] + [f'out_{k}' for k in self.outputs.keys()],
                 filepath=filepath,
             )
 
@@ -124,8 +124,8 @@ class Test2Process(Process):
         with LOCK:
             data = data_from_json(filepath)
         inst = cls()
-        inst.data_input = dict(x=data['in_x'], data=data['in_data'], c=float(data['in_c']))
-        inst.data_output = dict(x=data['out_x'], data=data['out_data'])
+        inst.inputs = dict(x=data['in_x'], data=data['in_data'], c=float(data['in_c']))
+        inst.outputs = dict(x=data['out_x'], data=data['out_data'])
         return inst
 
 
@@ -232,7 +232,7 @@ class TestInterface2:
 
             # Do the Processing
             process = TestProcess()
-            process.input_data(a=inputs['a'], b=inputs['b'], x=useful_x, data=useful_data)
+            process.set_inputs(a=inputs['a'], b=inputs['b'], x=useful_x, data=useful_data)
             out = process.process()
 
             # Rather than pass big datasets etc, save the Process and return the location to load it
@@ -279,7 +279,7 @@ class TestInterface2:
             if out_store:
                 process = TestProcess.load_progress(out_store)
                 fig = process.get_input_plotter().plot_1d()
-                fig.add_hline(process.data_input['a']*process.data_input['b'])
+                fig.add_hline(process.inputs['a']*process.inputs['b'])
                 return fig
             return go.Figure()
 
@@ -355,7 +355,7 @@ class Test2Interface2(ProcessInterface):
 
             # Do the Processing
             process = Test2Process()
-            process.input_data(c=inputs['c'], x=useful_x, data=useful_data)
+            process.set_inputs(c=inputs['c'], x=useful_x, data=useful_data)
             out = process.process()
 
             # Rather than pass big datasets etc, save the Process and return the location to load it
@@ -403,7 +403,7 @@ class Test2Interface2(ProcessInterface):
             if out_store:
                 process = Test2Process.load_progress(out_store)
                 fig = process.get_input_plotter().plot_1d()
-                fig.add_hline(process.data_input['c'])
+                fig.add_hline(process.inputs['c'])
                 return fig
             return go.Figure()
 
