@@ -3,7 +3,7 @@ Provide the dash functionality to dat_analysis Process
 """
 from __future__ import annotations
 import abc
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Union, Type, TypeVar, Optional
 from dash import html, dcc, callback, Output, Input
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
@@ -16,10 +16,25 @@ import dash_data_viewer.components as c
 
 from dash_data_viewer.components import CollapseAIO
 
+from dat_analysis import get_dat
+from dat_analysis.hdf_file_handler import HDFFileHandler
+
 if TYPE_CHECKING:
     from dash.development.base_component import Component
 
 NOT_SET = object()  # To be able to check if things still need to be set
+
+T = TypeVar('T', bound=Process)
+def load(location_dict: dict, process_class: Type[T]) -> T:
+    dat_id = location_dict.get('dat_id', None)
+    save_path = location_dict.get('save_path', None)
+    if dat_id and save_path:
+        dat = get_dat(id=dat_id)
+        with HDFFileHandler(dat.hdf.hdf_path, 'r') as f:
+            group = f.get(save_path)
+            process = process_class.load_progress(group)
+        return process
+    raise ValueError(f'dat_id or save_path not found in location_dict ({location_dict})')
 
 
 class ProcessInterface(abc.ABC):
@@ -87,7 +102,7 @@ class ProcessInterface(abc.ABC):
                 raise KeyError(f'{entry} has no "key". Must provide "key" that matches the sanitized input store '
                                f'in self.info_for_sanitized_display')
             entry.setdefault('name', entry['key'])
-            entry.setdefault('format', '.3f')
+            entry.setdefault('format', 'g')
             full_info.append(entry)
         return full_info
 
@@ -101,6 +116,7 @@ class ProcessInterface(abc.ABC):
         )
         def update_sanitized_display(s: dict):
             if s:
+                print(s)
                 md = 'Using:\n'
                 for d in info_to_display:
                     md += f"\t{d['name']} = {s[d['key']]:{d['format']}}\n"
@@ -298,7 +314,7 @@ class TemplateProcessInterface(ProcessInterface):
             # # Do the Processing
             # process = ThisProcess()
             # process.input_data(a=inputs['a'], b=inputs['b'], c=inputs['c'], x=useful_x, data=useful_data)
-            # out = process.output_data()
+            # out = process.process()
             #
             # # Rather than pass big datasets etc, save the Process and return the location to load it
             # with dat.open_hdf('write'):
@@ -327,9 +343,8 @@ class TemplateProcessInterface(ProcessInterface):
         )
         def update_input_graph(out_store):
             # if out_store:
-            #     process = ThisProcess.load_progress(out_store)
+            #     process = load(out_store, ThisProcess)
             #     fig = process.get_input_plotter().plot_1d()
-            #     fig.add_hline(process.data_input['c'])
             #     return fig
             return go.Figure()
 
@@ -338,9 +353,9 @@ class TemplateProcessInterface(ProcessInterface):
             Output(c.GraphAIO.ids.graph(self.out_graph_id), 'figure'),
             Input(self.output_store_id, 'data'),
         )
-        def update_input_graph(out_store):
+        def update_output_graph(out_store):
             # if out_store:
-            #     process = ThisProcess.load_progress(out_store)
+            #     process = load(out_store, ThisProcess)
             #     fig = process.get_output_plotter().plot_1d()
             #     return fig
             return go.Figure()

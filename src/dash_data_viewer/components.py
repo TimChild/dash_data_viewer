@@ -669,6 +669,8 @@ class GraphAIO(html.Div):
     ids = ids
 
     def __init__(self, aio_id=None, figure=None, **graph_kwargs):
+        figure = figure if figure else go.Figure()
+
         if aio_id is None:
             aio_id = str(uuid.uuid4())
 

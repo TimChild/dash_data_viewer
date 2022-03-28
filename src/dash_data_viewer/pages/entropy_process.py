@@ -7,23 +7,25 @@ from typing import TYPE_CHECKING, List, Union, Optional, Any, Tuple
 import uuid
 import numpy as np
 import plotly.graph_objects as go
+from dataclasses import dataclass
 
 import dash_data_viewer.components as c
-from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET
+from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load
 from dash_data_viewer.layout_util import label_component
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
 from dat_analysis import get_dat
-from dat_analysis.hdf_file_handler import GlobalLock
+from dat_analysis.hdf_file_handler import GlobalLock, HDFFileHandler
 from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index
 from dat_analysis.dat_object.attributes.square_entropy import get_transition_parts
+from dat_analysis.plotting.plotly.dat_plotting import OneD
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
 
 
 # For now making the Processes here, but should be moved to dat_analysis package
-
+@dataclass
 class SeparateSquareProcess(Process):
     def set_inputs(self, x: np.ndarray, i_sense: np.ndarray,
                    measure_freq: float,
@@ -64,7 +66,7 @@ class SeparateSquareProcess(Process):
             self._preprocessed['data_by_setpoint'][:, :, :, self._preprocessed['delay_index']:], axis=-1)
 
         x = self.inputs['x']
-        x = np.linspace(x[0], x[-1], separated.shape[-1])
+        x = np.linspace(x[0], x[-1], separated.shape[-2])
         self.outputs = {
             'x': x,
             'separated': separated,
@@ -97,7 +99,7 @@ class SeparateSquareProcess(Process):
 
         averaged = np.nanmean(by_setpoint, axis=0)  # Average rows together
         averaged = np.moveaxis(averaged, 1, 0)  # 4 parts, num steps, samples
-        averaged = np.nanmean(averaged, axis=-1)  # 4 parts, num steps
+        averaged = np.nanmean(averaged, axis=-2)  # 4 parts, samples  (average steps together)
         averaged = averaged.flatten()  # single 1D array with all 4 setpoints sequential
 
         duration = self._preprocessed['setpoint_duration']
@@ -125,12 +127,12 @@ class SeparateSquareProcess(Process):
                            x_spacing: float = 0,
                            y_spacing: float = 0.3,
                            ) -> DataPlotter:
-        separated = self.outputs['separated']  # rows, 4 parts, dac steps
-        separated = np.moveaxis(separated, 2, 1)
+        if not self.processed:
+            self.process()
+        separated = self.outputs['separated']  # rows, dac steps, 4 parts
         y = y if y is not None else np.arange(separated.shape[0])
 
-        part = get_transition_parts(part)  # Convert to Tuple (e.g. (1,3) for 'hot')
-        data_part = np.take(separated, part, axis=1)
+        data_part = self.data_part_out(part)
 
         data = PlottableData(
             data=data_part,
@@ -147,6 +149,18 @@ class SeparateSquareProcess(Process):
             yspacing=y_spacing,
         )
         return plotter
+
+    def data_part_out(self,
+                      part: Union[str, int] = 'cold',  # e.g. hot, cold, vp, vm, or 0, 1, 2, 3
+                      ) -> np.ndarray:
+        if not self.processed:
+            self.process()
+        separated = self.outputs['separated']
+        part = get_transition_parts(part)  # Convert to Tuple (e.g. (1,3) for 'hot')
+        data_part = np.nanmean(np.take(separated, part, axis=2), axis=2)
+        return data_part
+
+
 
 
 class SeparateProcessInterface(ProcessInterface):
@@ -174,13 +188,14 @@ class SeparateProcessInterface(ProcessInterface):
 
     def set_other_input_ids(self, dat_id):
         self.dat_id = dat_id  # For things like measure_freq etc
-
-    def set_data_input_ids(self, previous_process_id):
-        self.data_input_id = previous_process_id
         # TODO: later, make it possible to manually set measure_freq etc (useful if dropping data in)
 
+    def set_data_input_ids(self, previous_process_id=None):
+        # self.data_input_id = previous_process_id
+        pass
+
     def get_user_inputs_layout(self) -> html.Div:
-        in_delay = dbc.Input(id=self.input_delay_id, type='number')
+        in_delay = dbc.Input(id=self.input_delay_id, type='number', debounce=True)
         return html.Div([
             label_component(in_delay, 'Settling Delay'),
         ])
@@ -194,12 +209,25 @@ class SeparateProcessInterface(ProcessInterface):
             Input(self.dat_id, 'value'),
         )
         def update_sanitized_store(delay, dat_id) -> dict:
+            delay = delay if delay else 0
+            # FOR TESTING
+            dat_id = {
+                'datnum':2164,
+                'experiment_name': 'febmar21tim',
+                'datname': 'base',
+            }
+
             if dat_id:
                 dat = get_dat(id=dat_id)
                 measure_freq = dat.Logs.measure_freq
                 samples_per_setpoint = round(dat.AWG.info.wave_len/4)
-                data = dat.Data.i_sense
-                x = dat.Data.x
+                # data = dat.Data.i_sense
+                # x = dat.Data.x
+
+                delay_index = round(delay * measure_freq)
+                if delay_index > samples_per_setpoint:
+                    delay_index = samples_per_setpoint
+                    delay = delay_index / measure_freq
 
                 return dict(
                     delay=delay,
@@ -215,42 +243,56 @@ class SeparateProcessInterface(ProcessInterface):
 
     def info_for_sanitized_display(self) -> List[Union[str, dict]]:
         return [
-            {'key': 'delay', 'name': 'Settle Delay', 'format': '.4f'},
-            {'key': 'measure_freq', 'name': 'Measure Frequency', 'format': '.1f'},
-            {'key': 'samples_per_setpoint', 'name': 'Setpoint Samples', 'format': ''},
+            {'key': 'delay', 'name': 'Settle Delay', 'format': 'f'},
+            {'key': 'measure_freq', 'name': 'Measure Frequency', 'format': 'g'},
+            {'key': 'samples_per_setpoint', 'name': 'Setpoint Samples', 'format': 'd'},
         ]
 
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
         assert self.dat_id is not NOT_SET
+        print(f'running callback')
 
-        @callback( # TODO: Continue from here <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+        @callback(
             Output(self.output_store_id, 'data'),
             Input(self.dat_id, 'value'),
             Input(self.sanitized_store_id, 'data'),
-            Input(self.data_input_id, 'data'),
+            # Input(self.data_input_id, 'data'),  # Taking data directly from datHDF (First Process Only)
         )
-        def update_output_store(dat_id, inputs: dict, data_path: dict):
-            # # Get data from previous processing
-            # dat = get_dat(dat_id)
-            # with dat.open_hdf('read'):
-            #     group = dat.hdf.get(data_path)
-            #     pre_process = PreviousProcess.load_output(group)  # Or load whole Process
-            # out = pre_process.data_output
-            # useful_x, useful_data = out.x, out.data
-            #
-            # # Do the Processing
-            # process = ThisProcess()
-            # process.input_data(a=inputs['a'], b=inputs['b'], c=inputs['c'], x=useful_x, data=useful_data)
-            # out = process.output_data()
-            #
-            # # Rather than pass big datasets etc, save the Process and return the location to load it
-            # with dat.open_hdf('write'):
-            #     this_path = data_path+'/ThisProcess'
-            #     group = dat.hdf.require_group(this_path)
-            #     process.save_progress(group)
-            # return this_path
-            pass
+        def update_output_store(dat_id, inputs: dict): #, data_path: dict):
+            # FOR TESTING
+            dat_id = {
+                'datnum':2164,
+                'experiment_name': 'febmar21tim',
+                'datname': 'base',
+            }
+            if dat_id and inputs and inputs.get('valid', False):
+                # Get data from previous processing
+                dat = get_dat(dat_id)
+
+                # Get Initial data directly from Dat (First Process Only)
+                i_sense = dat.Data.i_sense
+                x = dat.Data.x
+
+                # Do the Processing
+                process = SeparateSquareProcess()
+                process.set_inputs(x=x, i_sense=i_sense,
+                                   measure_freq=inputs['measure_freq'],
+                                   samples_per_setpoint=inputs['samples_per_setpoint'],
+                                   setpoint_average_delay=inputs['delay'],
+                                   )
+
+                out = process.process()
+
+                # Rather than pass big datasets etc, save the Process and return the location to load it
+                with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
+                    process_group = f.require_group('/Process')  # First Process, so make sure Process Group exists
+
+                    save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
+                    save_path = save_group.name
+
+                return {'dat_id': dat.dat_id, 'save_path': save_path}
+            return dash.no_update
 
     def get_input_display_layout(self):
         layout = html.Div([
@@ -270,11 +312,17 @@ class SeparateProcessInterface(ProcessInterface):
             Input(self.output_store_id, 'data'),
         )
         def update_input_graph(out_store):
-            # if out_store:
-            #     process = ThisProcess.load_progress(out_store)
-            #     fig = process.get_input_plotter().plot_1d()
-            #     fig.add_hline(process.data_input['c'])
-            #     return fig
+            if out_store:
+                process: SeparateSquareProcess = load(out_store, SeparateSquareProcess)
+                fig = process.get_input_plotter().plot_1d()
+
+                delay = process.inputs['setpoint_average_delay']
+                sp_duration = process.inputs['samples_per_setpoint']/process.inputs['measure_freq']
+                for i in range(4):
+                    fig.add_vline(sp_duration*i, line=dict(color='black', dash='solid'))
+                    fig.add_vline(delay+sp_duration*i, line=dict(color='green', dash='dash'))
+
+                return fig
             return go.Figure()
 
     def callback_output_display(self):
@@ -282,11 +330,69 @@ class SeparateProcessInterface(ProcessInterface):
             Output(c.GraphAIO.ids.graph(self.out_graph_id), 'figure'),
             Input(self.output_store_id, 'data'),
         )
-        def update_input_graph(out_store):
-            # if out_store:
-            #     process = ThisProcess.load_progress(out_store)
-            #     fig = process.get_output_plotter().plot_1d()
-            #     return fig
+        def update_output_graph(out_store):
+            if out_store:
+                process: SeparateSquareProcess = load(out_store, SeparateSquareProcess)
+                p = OneD(dat=None)
+                x = process.outputs['x']
+                fig = p.figure(xlabel='Sweepgate /mV', ylabel='Current /nA', title='Naively Averaged Separated Data')
+                for i, label in enumerate(['0_0', '+', '0_1', '-']):
+                    data = process.data_part_out(i)
+                    data = np.nanmean(data, axis=0)
+                    fig.add_trace(p.trace(data=data, x=x, name=label, mode='lines'))
+                return fig
             return go.Figure()
 
+
+
+# Actually make the page
+dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
+stores = []
+
+# Initialize Interfaces that help make dash page
+separate_interface = SeparateProcessInterface()
+separate_interface.set_data_input_ids(None)
+separate_interface.set_other_input_ids(dat_id=dat_picker.dd_id)
+
+stores.append(separate_interface.get_stores())
+separate_inputs = separate_interface.get_user_inputs_layout()
+separate_sanitized = separate_interface.get_sanitized_inputs_layout()
+separate_input_display = separate_interface.get_input_display_layout()
+separate_output_display = separate_interface.get_output_display_layout()
+
+separate_interface.callback_output_store()
+separate_interface.callback_sanitized_store()
+
+separate_interface.callback_sanitized_inputs()
+separate_interface.callback_input_display()
+separate_interface.callback_output_display()
+
+
+
+
+# Put everything together into a layout
+layout = html.Div([
+    *stores,
+    dbc.Row([
+        dbc.Col([
+            dat_picker,
+            dbc.Card([separate_inputs, separate_sanitized]),
+        ],
+            width=3),
+        dbc.Col([
+            dbc.Card([separate_input_display, separate_output_display]),
+        ], width=9),
+    ])
+]
+)
+
+
+if __name__ == '__main__':
+    app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+    # app.layout = layout()
+    app.layout = layout
+    app.run_server(debug=True, port=8051)
+else:
+    dash.register_page(__name__)
+    pass
 
