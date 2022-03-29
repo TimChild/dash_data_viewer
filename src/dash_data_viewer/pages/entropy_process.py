@@ -1,28 +1,57 @@
 from __future__ import annotations
+
+import logging
+
 import dash
 import h5py
-from dash import html, dcc, callback, Input, Output
+from dash import html, dcc, callback, Input, Output, State
 import dash_bootstrap_components as dbc
 from typing import TYPE_CHECKING, List, Union, Optional, Any, Tuple
 import uuid
 import numpy as np
 import plotly.graph_objects as go
 from dataclasses import dataclass
+from functools import lru_cache
+import lmfit as lm
 
 import dash_data_viewer.components as c
-from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load
+from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load, standard_input_layout, standard_output_layout
 from dash_data_viewer.layout_util import label_component
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
+from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
 from dat_analysis import get_dat
 from dat_analysis.hdf_file_handler import GlobalLock, HDFFileHandler
-from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index
-from dat_analysis.dat_object.attributes.square_entropy import get_transition_parts
+from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index, mean_data
 from dat_analysis.plotting.plotly.dat_plotting import OneD
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+DELTA = '\u0394'
+SIGMA = '\u03c3'
+
+def get_transition_parts(part: Union[str, int]) -> Union[tuple, int]:
+    if isinstance(part, str):
+        part = part.lower()
+        if part == 'cold':
+            parts = (0, 2)
+        elif part == 'hot':
+            parts = (1, 3)
+        elif part == 'vp':
+            parts = (1,)
+        elif part == 'vm':
+            parts = (3,)
+        else:
+            raise ValueError(f'{part} not recognized. Should be in ["hot", "cold", "vp", "vm"]')
+    elif isinstance(part, int):
+        parts = (part,)
+    else:
+        raise ValueError(f'{part} not recognized. Should be in ["hot", "cold", "vp", "vm"]')
+    return parts
 
 # For now making the Processes here, but should be moved to dat_analysis package
 @dataclass
@@ -161,8 +190,6 @@ class SeparateSquareProcess(Process):
         return data_part
 
 
-
-
 class SeparateProcessInterface(ProcessInterface):
     id_prefix = 'Separate'
 
@@ -206,16 +233,10 @@ class SeparateProcessInterface(ProcessInterface):
         @callback(
             Output(self.sanitized_store_id, 'data'),
             Input(self.input_delay_id, 'value'),
-            Input(self.dat_id, 'value'),
+            Input(self.dat_id, 'data'),
         )
         def update_sanitized_store(delay, dat_id) -> dict:
             delay = delay if delay else 0
-            # FOR TESTING
-            dat_id = {
-                'datnum':2164,
-                'experiment_name': 'febmar21tim',
-                'datname': 'base',
-            }
 
             if dat_id:
                 dat = get_dat(id=dat_id)
@@ -251,21 +272,14 @@ class SeparateProcessInterface(ProcessInterface):
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
         assert self.dat_id is not NOT_SET
-        print(f'running callback')
 
         @callback(
             Output(self.output_store_id, 'data'),
-            Input(self.dat_id, 'value'),
+            Input(self.dat_id, 'data'),
             Input(self.sanitized_store_id, 'data'),
             # Input(self.data_input_id, 'data'),  # Taking data directly from datHDF (First Process Only)
         )
         def update_output_store(dat_id, inputs: dict): #, data_path: dict):
-            # FOR TESTING
-            dat_id = {
-                'datnum':2164,
-                'experiment_name': 'febmar21tim',
-                'datname': 'base',
-            }
             if dat_id and inputs and inputs.get('valid', False):
                 # Get data from previous processing
                 dat = get_dat(dat_id)
@@ -291,6 +305,7 @@ class SeparateProcessInterface(ProcessInterface):
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
 
+                logger.debug('Updating Separate Output Store')
                 return {'dat_id': dat.dat_id, 'save_path': save_path}
             return dash.no_update
 
@@ -314,7 +329,9 @@ class SeparateProcessInterface(ProcessInterface):
         def update_input_graph(out_store):
             if out_store:
                 process: SeparateSquareProcess = load(out_store, SeparateSquareProcess)
-                fig = process.get_input_plotter().plot_1d()
+                p = process.get_input_plotter()
+                fig = p.fig_1d()
+                fig.add_trace(p.trace_1d())
 
                 delay = process.inputs['setpoint_average_delay']
                 sp_duration = process.inputs['samples_per_setpoint']/process.inputs['measure_freq']
@@ -345,14 +362,561 @@ class SeparateProcessInterface(ProcessInterface):
 
 
 
+@dataclass
+class EntropySignalProcess(Process):
+    """
+    Taking data which has been separated into the 4 parts of square heating wave and making entropy signal (2D)
+    by averaging together cold and hot parts, then subtracting to get entropy signal
+    """
+
+
+    def set_inputs(self, x: np.ndarray, separated_data: np.ndarray,
+                   ):
+        self.inputs = dict(
+            x=x,
+            separated_data=separated_data,
+        )
+
+    def process(self):
+        x = self.inputs['x']
+        data = self.inputs['separated_data']
+        data = np.atleast_3d(data)  # rows, steps, 4 heating setpoints
+        cold = np.nanmean(np.take(data, get_transition_parts('cold'), axis=2), axis=2)
+        hot = np.nanmean(np.take(data, get_transition_parts('hot'), axis=2), axis=2)
+        entropy = cold-hot
+        self.outputs = {
+            'x': x,  # Worth keeping x-axis even if not modified
+            'entropy': entropy
+        }
+        return self.outputs
+
+    def get_input_plotter(self) -> DataPlotter:
+        return DataPlotter(data=None, xlabel='Sweepgate /mV', ylabel='Repeats', data_label='Current /nA')
+
+    def get_output_plotter(self,
+                           y: Optional[np.ndarray] = None,
+                           xlabel: str = 'Sweepgate /mV', data_label: str = f'{DELTA} Current /nA',
+                           title: str = 'Entropy Signal',
+                           ) -> DataPlotter:
+        x = self.outputs['x']
+        data = self.outputs['entropy']
+
+        data = PlottableData(
+            data=data,
+            x=x,
+        )
+
+        plotter = DataPlotter(
+            data=data,
+            xlabel=xlabel,
+            data_label=data_label,
+            title=title,
+        )
+        return plotter
+
+
+class EntropySignalInterface(ProcessInterface):
+    id_prefix = 'entropy-signal'
+
+    def __init__(self):
+        # Set up the non-standard IDs which will be used for various inputs/outputs
+        ID = self.ID  # Just to not have to write self.ID every time
+
+        # User Input IDs
+
+        # Other Required Input IDs
+        self.dat_id = NOT_SET
+
+        # Data input IDs
+        self.previous_process_id = NOT_SET  # Or may be easier to continue on from the output of another process
+
+        # Display IDs
+        self.in_graph_id = ID('graph-in')  # Display input to this Process (plus useful info, e.g. initial fit)
+        self.out_graph2d_id = ID('graph2d-out')  # Display output of this Process
+        self.out_graph_avg_id = ID('graph-avg-out')  # Display output of this Process
+
+    def set_other_input_ids(self, dat_id):
+        self.dat_id = dat_id
+
+    def set_data_input_ids(self, previous_process_id):
+        self.previous_process_id = previous_process_id
+
+    def get_user_inputs_layout(self) -> html.Div:
+        return html.Div([
+        ])
+
+    def callback_sanitized_store(self):
+        # @callback(
+        #     Output(self.sanitized_store_id, 'data'),
+        # )
+        # def update_sanitized_store() -> dict:
+        #     return {}
+        pass
+
+    def info_for_sanitized_display(self) -> List[Union[str, dict]]:
+        # return [
+        #     {'key': 'a', 'name': 'Input A', 'format': '.1f'},  # For more control to display 'a'
+        #     'b',  # Use defaults to display 'b'
+        #     'c',  # Use defaults to display 'c'
+        # ]
+        return []
+
+    def callback_output_store(self):
+        """Update output store using sanitized inputs and data"""
+        assert self.dat_id is not NOT_SET
+
+        @callback(
+            Output(self.output_store_id, 'data'),
+            Input(self.dat_id, 'data'),
+            Input(self.sanitized_store_id, 'data'),
+            Input(self.previous_process_id, 'data'),
+        )
+        def update_output_store(dat_id, inputs: dict, previous_process_location: dict):
+            if dat_id and previous_process_location:
+                # Get data from previous processing
+                dat = get_dat(dat_id)
+                previous: SeparateSquareProcess = load(previous_process_location, SeparateSquareProcess)
+                data_dict = previous.outputs
+                x = data_dict['x']
+                separated = data_dict['separated']
+
+                # Do the Processing
+                process = EntropySignalProcess()
+                process.set_inputs(x=x, separated_data=separated)
+                process.process()
+
+                # Rather than pass big datasets etc, save the Process and return the location to load it
+                with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
+                    process_group = f.require_group('/Process')  # First Process, so make sure Process Group exists
+
+                    save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
+                    save_path = save_group.name
+
+                logger.debug('updating entropy signal store')
+                return {'dat_id': dat.dat_id, 'save_path': save_path}
+            return dash.no_update
+
+    def get_input_display_layout(self):
+        layout = html.Div([
+        ])
+        return layout
+
+    def get_output_display_layout(self):
+        layout = html.Div([
+            c.GraphAIO(aio_id=self.out_graph2d_id),
+            c.GraphAIO(aio_id=self.out_graph_avg_id),
+        ])
+        return layout
+
+    def callback_input_display(self):
+        # @callback(
+        #     Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+        #     Input(self.output_store_id, 'data'),
+        # )
+        # def update_input_graph(out_store):
+        #     # if out_store:
+        #     #     process = load(out_store, ThisProcess)
+        #     #     fig = process.get_input_plotter().plot_1d()
+        #     #     return fig
+        #     return go.Figure()
+        pass
+
+    def callback_output_display(self):
+        @callback(
+            Output(c.GraphAIO.ids.graph(self.out_graph2d_id), 'figure'),
+            Output(c.GraphAIO.ids.graph(self.out_graph_avg_id), 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_output_graph(out_store):
+            if out_store:
+                process = load(out_store, EntropySignalProcess)
+                data = process.outputs['entropy']
+                x = process.outputs['x']
+                plotter = process.get_output_plotter()
+
+                fig2d = plotter.fig_heatmap()
+                fig2d.add_trace(plotter.trace_heatmap())
+
+                fig_avg = plotter.fig_1d()
+                fig_avg.add_trace(plotter.trace_1d(avg=True))
+                fig_avg.update_layout(title='Naively Averaged Entropy Signal')
+
+                return fig2d, fig_avg
+            return go.Figure(), go.Figure()
+
+
+
+# @lru_cache(maxsize=500)
+def _TEMPORARY_fit_weak_transition(x: np.ndarray, data:np.ndarray, initial_params: lm.Parameters) -> FitInfo:
+    """Temporary cached function to speed up repeated fitting with same arguments
+    In future should implement saving fits to DatHDF or something more permanent than this
+    """
+    def weak_transition_func(x, mid, theta, amp, lin, const):
+        """Charge transition shape for weak coupling only"""
+        arg = (x - mid) / (2 * theta)
+        return -amp / 2 * np.tanh(arg) + lin * (x - mid) + const
+
+    fit = calculate_fit(x=x, data=data, params=initial_params, func=weak_transition_func, auto_bin=True, min_bins=1000)
+    return fit
+
+
+@dataclass
+class CenteredAveragingProcess(Process):
+    def set_inputs(self, x: np.ndarray, datas: Union[np.ndarray, List[np.ndarray]],
+                   center_by_fitting: bool = True,
+                   fit_start_x: Optional[float] = None,
+                   fit_end_x: Optional[float] = None,
+                   initial_params: Optional[lm.Parameters] = None,
+                   override_centers_for_averaging: Optional[Union[np.ndarray, List[float]]] = None,
+                   ):
+        """
+
+        Args:
+            x ():
+            datas (): 2D or list of 2D datas to average (assumes first data is the one to use for fitting to)
+            center_by_fitting (): True to use a simple fit to find centres first, False just blind averages (unless
+                override_centers_for_averaging is set)
+            fit_start_x (): Optionally set a lower x-limit for fitting
+            fit_end_x (): Optionally set an upper x-limit for fitting
+            initial_params (): Optionally provide some initial paramters for fitting
+            override_centers_for_averaging (): Optionally provide a list of center values (will override everything else)
+
+        Returns:
+
+        """
+        self.inputs = dict(
+            x = x,
+            datas = datas,
+            center_by_fitting = center_by_fitting,
+            fit_start_x = fit_start_x,
+            fit_end_x = fit_end_x,
+            initial_params = initial_params,
+            override_centers_for_averaging = override_centers_for_averaging,
+        )
+
+    def _get_centers(self):
+        x = self.inputs['x']
+        center_by_fitting = self.inputs['center_by_fitting']
+        fit_start_x = self.inputs['fit_start_x']
+        fit_end_x = self.inputs['fit_end_x']
+        initial_params = self.inputs['initial_params']
+        override_centers_for_averaging = self.inputs['override_centers_for_averaging']
+
+        datas = self.inputs['datas']
+        data = datas[0] if isinstance(datas, list) else datas
+
+        if override_centers_for_averaging is not None:
+            centers = override_centers_for_averaging
+        elif center_by_fitting is False:
+            centers = [0]*data.shape[0]
+        else:
+            indexes = get_data_index(x, [fit_start_x, fit_end_x])
+            s_ = np.s_[indexes[0]:indexes[1]]
+            x = x[s_]
+            data = data[:, s_]
+            if not initial_params:
+                initial_params = lm.Parameters()
+                initial_params.add_many(
+                    # param, value, vary, min, max
+                    lm.Parameter('mid', np.mean(x), True, np.min(x), np.max(x)),
+                    lm.Parameter('amp', np.nanmax(data) - np.nanmin(data), True, 0, 2),
+                    lm.Parameter('const', np.mean(data), True),
+                    lm.Parameter('lin', 0, True, 0, 0.01),
+                    lm.Parameter('theta', 10, True, 0, 100),
+                )
+            center_fits = [_TEMPORARY_fit_weak_transition(x, d, initial_params) for d in data]
+            centers = [fit.best_values.mid for fit in center_fits]
+        return centers
+
+    def process(self):
+        x = self.inputs['x']
+        datas = self.inputs['datas']
+        centers = self._get_centers()
+
+        datas_is_list = isinstance(datas, list)
+        if not datas_is_list:
+            datas = [datas]
+
+        averaged, new_x, errors = [], [], []
+        for data in datas:
+            avg, x, errs = mean_data(x, data, centers, return_x=True, return_std=True, nan_policy='omit')
+            averaged.append(avg)
+            new_x.append(x)
+            errors.append(errs)
+
+        new_x = new_x[0]  # all the same anyway
+        if not datas_is_list:
+            averaged = averaged[0]
+            errors = errors[0]
+
+        self.outputs = {
+            'x': new_x,  # Worth keeping x-axis even if not modified
+            'averaged': averaged,
+            'std_errs': errors,
+            'centers': centers,
+        }
+        return self.outputs
+
+
+class CenteredEntropyAveragingInterface(ProcessInterface):
+
+    id_prefix = 'entropy-averaging'
+
+    def __init__(self):
+        # Set up the non-standard IDs which will be used for various inputs/outputs
+        ID = self.ID  # Just to not have to write self.ID every time
+
+        # User Input IDs
+        self.toggle_centering_id = c.MultiButtonAIO.ids.store(aio_id=self.ID('centering'))  # TODO: Just use a regular button and make callback for it to change color etc
+        self.input_fit_start_id = ID('input-fit-start')
+        self.input_fit_end_id = ID('input-fit-end')
+        # TODO: Add options for initial params
+
+        # Other Required Input IDs
+        self.dat_id = NOT_SET
+
+        # Data input IDs
+        self.separated_data_id = NOT_SET
+        self.entropy_signal_id = NOT_SET
+
+        # Display IDs
+        self.in_graph_id = ID('graph-in')  # Display input to this Process (plus useful info, e.g. initial fit)
+        self.out_graph_isense_id = ID('graph-out-isense')  # Display output of this Process
+        self.out_graph_entropy_id = ID('graph-out-entropy')  # Display output of this Process
+
+    def set_other_input_ids(self, dat_id: str):
+        self.dat_id = dat_id
+
+    def set_data_input_ids(self, separated_data_id, entropy_signal_id):
+        self.separated_data_id = separated_data_id
+        self.entropy_signal_id = entropy_signal_id
+
+    def get_user_inputs_layout(self) -> html.Div:
+        tog_center = c.MultiButtonAIO(button_texts=['Centered Averaging'], allow_multiple=False, aio_id=self.ID('centering'))
+        in_start = dbc.Input(id=self.input_fit_start_id, type='number', debounce=True)
+        in_end = dbc.Input(id=self.input_fit_end_id, type='number', debounce=True)
+        return html.Div([
+            tog_center,
+            label_component(in_start, 'Fit Start'),
+            label_component(in_end, 'Fit End'),
+        ])
+
+    def callback_sanitized_store(self):
+        assert self.dat_id
+        assert self.separated_data_id
+        assert self.entropy_signal_id
+
+        @callback(
+            Output(self.sanitized_store_id, 'data'),
+            Input(self.toggle_centering_id, 'data'),
+            Input(self.input_fit_start_id, 'value'),
+            Input(self.input_fit_end_id, 'value'),
+            Input(self.separated_data_id, 'data'),
+            # State(self.entropy_signal_id, 'data'),  # TODO: Possibly want to check this exists as well?
+        )
+        def update_sanitized_store(centered, fit_start, fit_end, prev_process_location) -> dict:
+            if prev_process_location:
+                prev_process: SeparateSquareProcess = load(prev_process_location, SeparateSquareProcess)
+                x = prev_process.outputs['x']
+                if not fit_start or not np.nanmin(x) < fit_start < np.nanmax(x):
+                    fit_start = np.nanmin(x)
+                if not fit_end or not np.nanmin(x) < fit_end < np.nanmax(x):
+                    fit_end = np.nanmax(x)
+                logger.debug(f'Value of centered is {centered}')
+                centered = True if centered['selected_values'] else False
+                return dict(
+                    centered = centered,
+                    fit_start = fit_start,
+                    fit_end = fit_end,
+                    valid=True
+                )
+            return dict(
+                centered=False,
+                fit_start=0,
+                fit_end=0,
+                valid=False,
+            )
+
+    def info_for_sanitized_display(self) -> List[Union[str, dict]]:
+        return [
+            {'key': 'centered', 'name': 'Do centering', 'format': 'g'},
+            {'key': 'fit_start', 'name': 'Fit From x', 'format': 'f'},
+            {'key': 'fit_end', 'name': 'Fit To x', 'format': 'f'},
+        ]
+
+    def callback_output_store(self):
+        """Update output store using sanitized inputs and data"""
+        assert self.dat_id
+
+        @callback(
+            Output(self.output_store_id, 'data'),
+            Input(self.dat_id, 'data'),
+            Input(self.sanitized_store_id, 'data'),
+            Input(self.separated_data_id, 'data'),
+            Input(self.entropy_signal_id, 'data'),
+        )
+        def update_output_store(dat_id: dict, inputs: dict, separated_path, entropy_path):
+            if dat_id and inputs['valid']:
+                dat = get_dat(dat_id)
+
+                # Get data from previous processing
+                separated_process = load(separated_path, SeparateSquareProcess)
+                out = separated_process.outputs
+                x, separated = out['x'], out['separated']
+
+                cold = np.mean(np.take(np.atleast_3d(separated), (0, 2), axis=2), axis=2)
+                hot = np.mean(np.take(np.atleast_3d(separated), (1, 3), axis=2), axis=2)
+
+                entropy_process = load(entropy_path, EntropySignalProcess)
+                entropy = entropy_process.outputs['entropy']
+
+                # Do the Processing
+                process = CenteredAveragingProcess()
+                process.set_inputs(x=x, datas=[cold, hot, entropy],
+                                   center_by_fitting=inputs['centered'],
+                                   fit_start_x=inputs['fit_start'],
+                                   fit_end_x=inputs['fit_end'],
+                                   initial_params=None,
+                                   )
+                out = process.process()
+
+                # Rather than pass big datasets etc, save the Process and return the location to load it
+                with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
+                    process_group = f.require_group('/Process')
+                    save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
+                    save_path = save_group.name
+                logger.debug(f'Updating Center and average store')
+                return {'dat_id': dat.dat_id, 'save_path': save_path}
+            return dash.no_update
+
+    def get_input_display_layout(self):
+        layout = html.Div([
+            c.GraphAIO(aio_id=self.in_graph_id)
+        ])
+        return layout
+
+    def get_output_display_layout(self):
+        layout = html.Div([
+            c.GraphAIO(aio_id=self.out_graph_isense_id),
+            c.GraphAIO(aio_id=self.out_graph_entropy_id),
+        ])
+        return layout
+
+    def callback_input_display(self):
+        @callback(
+            Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_input_graph(out_store):
+            if out_store:
+                process: CenteredAveragingProcess = load(out_store, CenteredAveragingProcess)
+                cold_data, _, _ = process.inputs['datas']
+                y = np.arange(cold_data.shape[0])
+                data = PlottableData(cold_data, x=process.inputs['x'], y=y)
+
+                p = DataPlotter(data, xlabel='Sweepgate /mV', ylabel='Row', data_label='Current /nA',
+                                title='Unheated part of Data with Center Values')
+                fig = p.fig_heatmap()
+                fig.add_trace(p.trace_heatmap())
+                fig.add_trace(go.Scatter(x=process.outputs['centers'], y=y, mode='markers')) #, marker=dict(size=5, symbol='cross-thin', line=dict(color='white'))))
+                return fig
+            return go.Figure()
+
+    def callback_output_display(self):
+        @callback(
+            Output(c.GraphAIO.ids.graph(self.out_graph_isense_id), 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_i_sense_graph(out_store):
+            if out_store:
+                process: CenteredAveragingProcess = load(out_store, CenteredAveragingProcess)
+
+                x_label = 'Sweepgate /mV'
+                title = f'Averaged Transition data (with {SIGMA} of average)'
+                if process.inputs['center_by_fitting']:
+                    x_label = 'Centered ' + x_label
+                    title = 'Centered ' + title
+
+                p = DataPlotter(None, xlabel=x_label, data_label='Current /nA',
+                                title=title)
+                fig = p.fig_1d()
+
+                datas = process.outputs['averaged']
+                errs = process.outputs['std_errs']
+                x = process.outputs['x']
+
+                for data, err in zip(datas[:2], errs[:2]):
+                    plottable = PlottableData(data, x=x,
+                                         data_err=err)
+                    p.data = plottable
+                    fig.add_trace(p.trace_1d())
+
+                return fig
+            return go.Figure()
+
+        @callback(
+            Output(c.GraphAIO.ids.graph(self.out_graph_entropy_id), 'figure'),
+            Input(self.output_store_id, 'data'),
+        )
+        def update_entropy_graph(out_store):
+            if out_store:
+                process: CenteredAveragingProcess = load(out_store, CenteredAveragingProcess)
+
+                x_label = 'Sweepgate /mV'
+                title = f'Averaged Entropy Signal (with {SIGMA} of average)'
+                if process.inputs['center_by_fitting']:
+                    x_label = 'Centered ' + x_label
+                    title = 'Centered ' + title
+
+                p = DataPlotter(None, xlabel=x_label, data_label=f'{DELTA}Current /nA',
+                                title=title)
+                fig = p.fig_1d()
+
+                data = process.outputs['averaged'][-1]
+                err = process.outputs['std_errs'][-1]
+                x = process.outputs['x']
+
+                plottable = PlottableData(data, x=x,
+                                          data_err=err)
+                p.data = plottable
+                fig.add_trace(p.trace_1d())
+
+                return fig
+            return go.Figure()
+
+
 # Actually make the page
-dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
-stores = []
+
+# FOR TESTING just using a fixed dat_id (need to fix the DatnumPickerAIO to include config)
+dat_id = {
+    'datnum': 2164,
+    'experiment_name': 'febmar21tim',
+    'datname': 'base',
+}
+dat_picker = dcc.Dropdown(id='testing-fake-datpicker', options=[{'label': 'Dat2164', 'value': 2164}], value=2164)
+dat_selection = dcc.Store(id='testing-store-dat-selection')
+@callback(
+    Output(dat_selection.id, 'data'),
+    Input(dat_picker.id, 'value')
+)
+def update_dat_selection(datnum) -> dict:
+    if datnum:
+        return {
+            'datnum': datnum,
+            'experiment_name': 'febmar21tim',
+            'datname': 'base',
+        }
+    return dat_id  # For testing only anyway
+
+
+# dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
+stores = [dat_selection]
 
 # Initialize Interfaces that help make dash page
+# Separating into parts of heating wave
 separate_interface = SeparateProcessInterface()
 separate_interface.set_data_input_ids(None)
-separate_interface.set_other_input_ids(dat_id=dat_picker.dd_id)
+separate_interface.set_other_input_ids(dat_id=dat_selection.id)
 
 stores.append(separate_interface.get_stores())
 separate_inputs = separate_interface.get_user_inputs_layout()
@@ -368,6 +932,45 @@ separate_interface.callback_input_display()
 separate_interface.callback_output_display()
 
 
+# Turning into Entropy signal
+signal_interface = EntropySignalInterface()
+signal_interface.set_data_input_ids(previous_process_id=separate_interface.output_store_id)
+signal_interface.set_other_input_ids(dat_id=dat_selection.id)
+
+stores.append(signal_interface.get_stores())
+signal_inputs = signal_interface.get_user_inputs_layout()
+signal_sanitized = signal_interface.get_sanitized_inputs_layout()
+signal_input_display = signal_interface.get_input_display_layout()
+signal_output_display = signal_interface.get_output_display_layout()
+
+signal_interface.callback_output_store()
+signal_interface.callback_sanitized_store()
+
+signal_interface.callback_sanitized_inputs()
+signal_interface.callback_input_display()
+signal_interface.callback_output_display()
+
+
+# Centering and Averaging
+centering_interface = CenteredEntropyAveragingInterface()
+centering_interface.set_data_input_ids(
+    separated_data_id=separate_interface.output_store_id,
+    entropy_signal_id=signal_interface.output_store_id,
+)
+centering_interface.set_other_input_ids(dat_id=dat_selection.id)
+
+stores.append(centering_interface.get_stores())
+centering_inputs = centering_interface.get_user_inputs_layout()
+centering_sanitized = centering_interface.get_sanitized_inputs_layout()
+centering_input_display = centering_interface.get_input_display_layout()
+centering_output_display = centering_interface.get_output_display_layout()
+
+centering_interface.callback_output_store()
+centering_interface.callback_sanitized_store()
+
+centering_interface.callback_sanitized_inputs()
+centering_interface.callback_input_display()
+centering_interface.callback_output_display()
 
 
 # Put everything together into a layout
@@ -376,11 +979,15 @@ layout = html.Div([
     dbc.Row([
         dbc.Col([
             dat_picker,
-            dbc.Card([separate_inputs, separate_sanitized]),
+            standard_input_layout('Separate Heating Parts', separate_inputs, separate_sanitized),
+            standard_input_layout('Make Entropy Signal', signal_inputs, signal_sanitized),
+            standard_input_layout('Centering and Averaging', centering_inputs, centering_sanitized),
         ],
             width=3),
         dbc.Col([
-            dbc.Card([separate_input_display, separate_output_display]),
+            standard_output_layout('Separate Heating Parts', separate_output_display, separate_input_display),
+            standard_output_layout('Entropy Signal', signal_output_display, signal_input_display),
+            standard_output_layout('Centering and Averaging', centering_output_display, centering_input_display),
         ], width=9),
     ])
 ]

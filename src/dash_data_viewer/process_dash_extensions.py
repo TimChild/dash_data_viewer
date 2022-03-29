@@ -116,7 +116,6 @@ class ProcessInterface(abc.ABC):
         )
         def update_sanitized_display(s: dict):
             if s:
-                print(s)
                 md = 'Using:\n'
                 for d in info_to_display:
                     md += f"\t{d['name']} = {s[d['key']]:{d['format']}}\n"
@@ -260,7 +259,7 @@ class TemplateProcessInterface(ProcessInterface):
         self.existing_input_id = existing_c_id
 
     def set_data_input_ids(self, previous_process_id):
-        self.data_input_id = previous_process_id
+        self.previous_process_id = previous_process_id
 
     def get_user_inputs_layout(self) -> html.Div:
         in_a = dbc.Input(id=self.input_a_id, type='number')
@@ -305,23 +304,21 @@ class TemplateProcessInterface(ProcessInterface):
         def update_output_store(dat_id, inputs: dict, data_path: dict):
             # # Get data from previous processing
             # dat = get_dat(dat_id)
-            # with dat.open_hdf('read'):
-            #     group = dat.hdf.get(data_path)
-            #     pre_process = PreviousProcess.load_output(group)  # Or load whole Process
-            # out = pre_process.data_output
-            # useful_x, useful_data = out.x, out.data
+            # previous_process = load(data_path, PreviousProcess)
+            # out = previous_process.outputs
+            # useful_x, useful_data = out['x'], out['data']
             #
             # # Do the Processing
             # process = ThisProcess()
-            # process.input_data(a=inputs['a'], b=inputs['b'], c=inputs['c'], x=useful_x, data=useful_data)
+            # process.set_inputs(a=inputs['a'], b=inputs['b'], c=inputs['c'], x=useful_x, data=useful_data)
             # out = process.process()
             #
             # # Rather than pass big datasets etc, save the Process and return the location to load it
-            # with dat.open_hdf('write'):
-            #     this_path = data_path+'/ThisProcess'
-            #     group = dat.hdf.require_group(this_path)
-            #     process.save_progress(group)
-            # return this_path
+            # with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
+            #     process_group = f.require_group('/Process')
+            #     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
+            #     save_path = save_group.name
+            # return {'dat_id': dat.dat_id, 'save_path': save_path}
             pass
 
     def get_input_display_layout(self):
@@ -359,5 +356,25 @@ class TemplateProcessInterface(ProcessInterface):
             #     fig = process.get_output_plotter().plot_1d()
             #     return fig
             return go.Figure()
+
+
+def standard_input_layout(process_name: str, user_inputs, sanitized_inputs,
+                          start_open: bool=True) -> dbc.Card:
+    layout = dbc.Card([
+        dbc.CardHeader(html.H5(process_name)),
+        dbc.CardBody([user_inputs, sanitized_inputs])
+    ])
+    layout = c.CollapseAIO(content=layout, button_text=process_name, start_open=start_open)
+    return layout
+
+def standard_output_layout(process_name: str, output_display, input_display = None,
+                           start_open: bool = True) -> dbc.Card:
+    input_display = input_display if input_display else html.Div()
+    layout = dbc.Card([
+        dbc.CardHeader(html.H5(process_name)),
+        dbc.CardBody([output_display, input_display])
+    ])
+    layout = c.CollapseAIO(content=layout, button_text=process_name, start_open=start_open)
+    return layout
 
 
