@@ -17,6 +17,7 @@ import lmfit as lm
 import dash_data_viewer.components as c
 from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load, standard_input_layout, standard_output_layout
 from dash_data_viewer.layout_util import label_component
+from dash_data_viewer.dash_hdf import DashHDF, HdfId
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
 from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
@@ -242,8 +243,6 @@ class SeparateProcessInterface(ProcessInterface):
                 dat = get_dat(id=dat_id)
                 measure_freq = dat.Logs.measure_freq
                 samples_per_setpoint = round(dat.AWG.info.wave_len/4)
-                # data = dat.Data.i_sense
-                # x = dat.Data.x
 
                 delay_index = round(delay * measure_freq)
                 if delay_index > samples_per_setpoint:
@@ -907,6 +906,32 @@ def update_dat_selection(datnum) -> dict:
             'datname': 'base',
         }
     return dat_id  # For testing only anyway
+
+
+# # Store to hold the DashHDF ID where any external info (i.e. from Dat or File) is stored
+# # This is to avoid relying on any specific original source of data but keep data local and only send pointer to store
+external_data_path_store = dcc.Store(id='entropy-store-from-external')
+
+@callback(
+    Output(external_data_path_store.id, 'data'),
+    Input(dat_selection.id, 'data')
+)
+def get_external_data_and_info(dat_id):
+    """For now this only gets data from Dat, but can later take data from other sources and everything else should
+    still work
+    Note: This is the ONLY place that external data should load from.
+    """
+    dat = get_dat(dat_id)
+    hdf_id = HdfId(page='entropy-process', experiment=dat_id['experiment_name'], number=dat_id['datnum'])
+    dash_hdf = DashHDF(hdf_id)
+
+    dash_hdf.save_data(dat.Data.i_sense, 'i_sense', subgroup=None)
+    dash_hdf.save_data(dat.Data.x, 'x', subgroup=None)
+
+    dash_hdf.save_info(dat.Data.x, 'x', subgroup=None)
+
+
+    return dash_hdf.hdf_id.asdict()
 
 
 # dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
