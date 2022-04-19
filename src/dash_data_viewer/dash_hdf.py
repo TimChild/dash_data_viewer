@@ -4,16 +4,19 @@ an ID of the Dash HDF, and maybe what was last updated in it?
 This will save sending data back and forth to client, and I can interact with HDF files in a threadsafe/process safe way
 with my HDFFileHandler (i.e. single process access, multi-thread if reading, single thread if writing)
 """
+from __future__ import annotations
 import h5py
 import numpy as np
 from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass, asdict, field, InitVar
 import os
+from contextlib import AbstractContextManager
 
 from dacite import from_dict
 
 
 from dat_analysis.hdf_file_handler import HDFFileHandler, GlobalLock
+from dat_analysis.hdf_util import NotFoundInHdfError, set_attr, get_attr, set_data, get_data, get_dataset
 
 HDF_DIR = os.path.join(os.path.dirname(__file__), 'dash_hdfs')
 os.makedirs(HDF_DIR, exist_ok=True)
@@ -88,23 +91,24 @@ def _get_hdf_path(hdf_id: Union[dict, HdfId]) -> str:
 
 
 class DashHDF:
-    def __init__(self, hdf_id: Union[dict, HdfId]):
+    def __init__(self, hdf_id: Union[dict, HdfId], mode='r'):
         if not isinstance(hdf_id, HdfId):
             hdf_id = from_dict(HdfId, hdf_id)
+        self.mode = mode  # Used when opening file in self.__enter__
         self.hdf_id: HdfId = hdf_id
         self.hdf_path = _get_hdf_path(hdf_id)
         self._using_context = False
         self._handler = None
         self._file: h5py.File = None
 
-    def __enter__(self,  mode: str):
+    def __enter__(self) -> DashHDF:
         """For context manager"""
-        allowed_modes = ['r', 'r+']
-        if mode not in allowed_modes:
-            raise ValueError(f'{mode} not supported. Only {allowed_modes} allowed')
+        allowed_modes = ['r', 'r+', 'w']
+        if self.mode not in allowed_modes:
+            raise ValueError(f'{self.mode} not supported. Only {allowed_modes} allowed')
         if self._using_context:
             raise RuntimeError(f'Context manager already open for {self.hdf_id}')
-        self._handler = HDFFileHandler(self.hdf_path, mode)
+        self._handler = HDFFileHandler(self.hdf_path, self.mode)
         self._using_context = True
         self._file = self._handler.new()
         return self._file
@@ -123,7 +127,10 @@ class DashHDF:
             if mode == 'r':
                 pass  # Doesn't matter what mode hdf is in
             elif mode == 'r+':
-                if self._file.mode != 'r+':
+                if self._file.mode not in ['r+', 'w']:
+                    raise RuntimeError(f'File is in {self._file.mode} mode, but requires {mode}')
+            elif mode == 'w':
+                if self._file.mode != 'w':
                     raise RuntimeError(f'File is in {self._file.mode} mode, but requires {mode}')
 
     @classmethod
@@ -131,24 +138,42 @@ class DashHDF:
         raise NotImplementedError
 
     def save_data(self, data: Union[np.ndarray, h5py.Dataset], name: str, subgroup: Optional[str] = None):
-        "For saving arrays or dataset to HDF"
+        """For saving arrays or dataset to HDF"""
         self._check_file_open('r+')
-        raise NotImplementedError
+        subgroup = subgroup if subgroup else '/'
+        group = self._file.require_group(subgroup)
+        set_data(group, name, data)
+
+    def _get_dataset(self, name, subgroup) -> h5py.Dataset:
+        self._check_file_open('r')
+        subgroup = subgroup if subgroup else '/'
+        group = self._file[subgroup]
+        dataset = get_dataset(group, name)
+        return dataset
 
     def get_data(self, name: str, subgroup: Optional[str] = None) -> np.ndarray:
-        "For getting array from HDF"
-        self._check_file_open('r')
-        raise NotImplementedError
+        """For getting array from HDF"""
+        dataset = self._get_dataset(name, subgroup)
+        return dataset[:]
 
     def get_dataset(self, name: str, subgroup: Optional[str] = None) -> h5py.Dataset:
-        "For getting h5py.Dataset from HDF (note that the HDF must be kept open while using this)"
-        self._check_file_open('r')
-        raise NotImplementedError
+        """For getting h5py.Dataset from HDF (note that the HDF must be kept open while using this)"""
+        return self._get_dataset(name, subgroup)
 
     def save_info(self, info: Any, name: str, subgroup: Optional[str] = None):
-        "For saving any other info/attributes to the HDF"
+        """For saving any other info/attributes to the HDF"""
         self._check_file_open('r+')
-        raise NotImplementedError
+        subgroup = subgroup if subgroup else '/'
+        group = self._file.require_group(subgroup)
+        set_attr(group, name, info, dataclass=None)
+
+    def get_info(self, name: str, subgroup: Optional[str] = None) -> Any:
+        """For getting info/attribute from HDF"""
+        self._check_file_open('r')
+        subgroup = subgroup if subgroup else '/'
+        group = self._file.require_group(subgroup)
+        info = get_attr(group, name, default=None, check_exists=True, dataclass=None)
+        return info
 
 
 
