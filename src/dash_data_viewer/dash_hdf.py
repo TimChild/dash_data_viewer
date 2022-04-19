@@ -10,6 +10,7 @@ import numpy as np
 from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass, asdict, field, InitVar
 import os
+from functools import wraps
 from contextlib import AbstractContextManager
 
 from dacite import from_dict
@@ -24,19 +25,19 @@ os.makedirs(HDF_DIR, exist_ok=True)
 
 @dataclass
 class HdfId:
-    page: InitVar[str] = None
-    experiment: InitVar[str] = None
-    number: InitVar[int] = None
-    uid: Union[str, int] = None
+    page: InitVar[str] = None  # To keep track of which page is creating which HDFs (prevents overlap between pages)
+    additional_classifier: InitVar[str] = None  # e.g. prevent overlap when comparing between experiments
+    number: InitVar[int] = None  # Usually datnum
+    uid: Union[str, int] = None  # Optionally specify the whole unique ID in which case other InitVars are ignored
 
-    def __post_init__(self, page, experiment, number):
+    def __post_init__(self, page, additional_classifier, number):
         if not self.uid:
             if number:
                 uid = ''
                 if page:
                     uid += f'{page}-'
-                if experiment:
-                    uid += f'{experiment}-'
+                if additional_classifier:
+                    uid += f'{additional_classifier}-'
                 uid += f'{number}'
             else:
                 uid = self._get_next_id()
@@ -49,7 +50,13 @@ class HdfId:
 
     @classmethod
     def from_dict(cls, d: dict):
+        """Get the HdfId object back from its dict representation"""
         return from_dict(HdfId, d)
+
+    @classmethod
+    def from_id(cls, id: dict):
+        """Alias for 'from_dict' """
+        return cls.from_dict(id)
 
     @property
     def filename(self) -> str:
@@ -93,13 +100,25 @@ def _get_hdf_path(hdf_id: Union[dict, HdfId]) -> str:
 class DashHDF:
     def __init__(self, hdf_id: Union[dict, HdfId], mode='r'):
         if not isinstance(hdf_id, HdfId):
-            hdf_id = from_dict(HdfId, hdf_id)
+            hdf_id.setdefault('page', None)
+            hdf_id.setdefault('additional_classifier', None)
+            hdf_id.setdefault('number', None)
+            hdf_id = HdfId(**hdf_id)
         self.mode = mode  # Used when opening file in self.__enter__
         self.hdf_id: HdfId = hdf_id
         self.hdf_path = _get_hdf_path(hdf_id)
         self._using_context = False
         self._handler = None
-        self._file: h5py.File = None
+        self._file: h5py.File
+
+    @property
+    def id(self):
+        return self.hdf_id.asdict()
+
+    @wraps(h5py.File.get)
+    def get(self, name, default=None, getclass=None, getlink=None):
+        self._check_file_open('r')
+        return self._file.get(name, default=default, getclass=getclass, getlink=getlink)
 
     def __enter__(self) -> DashHDF:
         """For context manager"""
@@ -133,9 +152,9 @@ class DashHDF:
                 if self._file.mode != 'w':
                     raise RuntimeError(f'File is in {self._file.mode} mode, but requires {mode}')
 
-    @classmethod
-    def load_from_id(cls, hdf_id: dict):
-        raise NotImplementedError
+    def require_group(self, name: str):
+        self._check_file_open(mode='r+')
+        return self._file.require_group(name)
 
     def save_data(self, data: Union[np.ndarray, h5py.Dataset], name: str, subgroup: Optional[str] = None):
         """For saving arrays or dataset to HDF"""

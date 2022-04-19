@@ -205,7 +205,7 @@ class SeparateProcessInterface(ProcessInterface):
         # TODO: Fill with things like start-x, end-x etc
 
         # Other Required Input IDs
-        self.dat_id = NOT_SET
+        self.dashdata_id = NOT_SET
 
         # Data input IDs
         self.data_input_id = NOT_SET  # Probably going to be taking data from HDF file
@@ -214,8 +214,8 @@ class SeparateProcessInterface(ProcessInterface):
         self.in_graph_id = ID('graph-in')  # Display input to this Process (plus useful info, e.g. initial fit)
         self.out_graph_id = ID('graph-out')  # Display output of this Process
 
-    def set_other_input_ids(self, dat_id):
-        self.dat_id = dat_id  # For things like measure_freq etc
+    def set_other_input_ids(self, dashdata_id):
+        self.dashdata_id = dashdata_id  # For things like measure_freq etc
         # TODO: later, make it possible to manually set measure_freq etc (useful if dropping data in)
 
     def set_data_input_ids(self, previous_process_id=None):
@@ -229,20 +229,21 @@ class SeparateProcessInterface(ProcessInterface):
         ])
 
     def callback_sanitized_store(self):
-        assert self.dat_id is not NOT_SET
+        assert self.dashdata_id is not NOT_SET
 
         @callback(
             Output(self.sanitized_store_id, 'data'),
             Input(self.input_delay_id, 'value'),
-            Input(self.dat_id, 'data'),
+            Input(self.dashdata_id, 'data'),
         )
-        def update_sanitized_store(delay, dat_id) -> dict:
+        def update_sanitized_store(delay, dashd_id) -> dict:
             delay = delay if delay else 0
 
-            if dat_id:
-                dat = get_dat(id=dat_id)
-                measure_freq = dat.Logs.measure_freq
-                samples_per_setpoint = round(dat.AWG.info.wave_len/4)
+            if dashd_id:
+                dashd = DashHDF(dashd_id, mode='r')
+                with dashd:
+                    measure_freq = dashd.get_info('measure_freq')
+                    samples_per_setpoint = dashd.get_info('samples_per_setpoint')
 
                 delay_index = round(delay * measure_freq)
                 if delay_index > samples_per_setpoint:
@@ -270,22 +271,23 @@ class SeparateProcessInterface(ProcessInterface):
 
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
-        assert self.dat_id is not NOT_SET
+        assert self.dashdata_id is not NOT_SET
 
         @callback(
             Output(self.output_store_id, 'data'),
-            Input(self.dat_id, 'data'),
+            Input(self.dashdata_id, 'data'),
             Input(self.sanitized_store_id, 'data'),
             # Input(self.data_input_id, 'data'),  # Taking data directly from datHDF (First Process Only)
         )
-        def update_output_store(dat_id, inputs: dict): #, data_path: dict):
-            if dat_id and inputs and inputs.get('valid', False):
+        def update_output_store(dashd_id, inputs: dict): #, data_path: dict):
+            if dashd_id and inputs and inputs.get('valid', False):
                 # Get data from previous processing
-                dat = get_dat(dat_id)
+                dashd = DashHDF(dashd_id, 'r')
 
                 # Get Initial data directly from Dat (First Process Only)
-                i_sense = dat.Data.i_sense
-                x = dat.Data.x
+                with dashd:
+                    i_sense = dashd.get_data('i_sense', subgroup=None)
+                    x = dashd.get_data('x', subgroup=None)
 
                 # Do the Processing
                 process = SeparateSquareProcess()
@@ -298,14 +300,15 @@ class SeparateProcessInterface(ProcessInterface):
                 out = process.process()
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
-                with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
-                    process_group = f.require_group('/Process')  # First Process, so make sure Process Group exists
+                dashd.mode = 'r+'
+                with dashd:
+                    process_group = dashd.require_group('/Process')  # First Process, so make sure Process Group exists
 
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
 
                 logger.debug('Updating Separate Output Store')
-                return {'dat_id': dat.dat_id, 'save_path': save_path}
+                return {'dashd_id': dashd.id, 'save_path': save_path}
             return dash.no_update
 
     def get_input_display_layout(self):
@@ -424,7 +427,7 @@ class EntropySignalInterface(ProcessInterface):
         # User Input IDs
 
         # Other Required Input IDs
-        self.dat_id = NOT_SET
+        self.dashd_id = NOT_SET
 
         # Data input IDs
         self.previous_process_id = NOT_SET  # Or may be easier to continue on from the output of another process
@@ -434,8 +437,8 @@ class EntropySignalInterface(ProcessInterface):
         self.out_graph2d_id = ID('graph2d-out')  # Display output of this Process
         self.out_graph_avg_id = ID('graph-avg-out')  # Display output of this Process
 
-    def set_other_input_ids(self, dat_id):
-        self.dat_id = dat_id
+    def set_other_input_ids(self, dashd_id):
+        self.dashd_id = dashd_id
 
     def set_data_input_ids(self, previous_process_id):
         self.previous_process_id = previous_process_id
@@ -462,18 +465,17 @@ class EntropySignalInterface(ProcessInterface):
 
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
-        assert self.dat_id is not NOT_SET
+        assert self.dashd_id is not NOT_SET
 
         @callback(
             Output(self.output_store_id, 'data'),
-            Input(self.dat_id, 'data'),
+            Input(self.dashd_id, 'data'),
             Input(self.sanitized_store_id, 'data'),
             Input(self.previous_process_id, 'data'),
         )
-        def update_output_store(dat_id, inputs: dict, previous_process_location: dict):
-            if dat_id and previous_process_location:
+        def update_output_store(dashd_id, inputs: dict, previous_process_location: dict):
+            if dashd_id and previous_process_location:
                 # Get data from previous processing
-                dat = get_dat(dat_id)
                 previous: SeparateSquareProcess = load(previous_process_location, SeparateSquareProcess)
                 data_dict = previous.outputs
                 x = data_dict['x']
@@ -485,14 +487,14 @@ class EntropySignalInterface(ProcessInterface):
                 process.process()
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
-                with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
-                    process_group = f.require_group('/Process')  # First Process, so make sure Process Group exists
-
+                dashd = DashHDF(dashd_id, mode='r+')
+                with dashd:
+                    process_group = dashd.require_group('/Process')  # First Process, so make sure Process Group exists
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
 
                 logger.debug('updating entropy signal store')
-                return {'dat_id': dat.dat_id, 'save_path': save_path}
+                return {'dashd_id': dashd.hdf_id.asdict(), 'save_path': save_path}
             return dash.no_update
 
     def get_input_display_layout(self):
@@ -672,7 +674,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
         # TODO: Add options for initial params
 
         # Other Required Input IDs
-        self.dat_id = NOT_SET
+        self.dashd_id = NOT_SET
 
         # Data input IDs
         self.separated_data_id = NOT_SET
@@ -683,8 +685,8 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
         self.out_graph_isense_id = ID('graph-out-isense')  # Display output of this Process
         self.out_graph_entropy_id = ID('graph-out-entropy')  # Display output of this Process
 
-    def set_other_input_ids(self, dat_id: str):
-        self.dat_id = dat_id
+    def set_other_input_ids(self, dashd_id: str):
+        self.dashd_id = dashd_id
 
     def set_data_input_ids(self, separated_data_id, entropy_signal_id):
         self.separated_data_id = separated_data_id
@@ -701,7 +703,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
         ])
 
     def callback_sanitized_store(self):
-        assert self.dat_id
+        assert self.dashd_id
         assert self.separated_data_id
         assert self.entropy_signal_id
 
@@ -745,18 +747,17 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
 
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
-        assert self.dat_id
+        assert self.dashd_id
 
         @callback(
             Output(self.output_store_id, 'data'),
-            Input(self.dat_id, 'data'),
+            Input(self.dashd_id, 'data'),
             Input(self.sanitized_store_id, 'data'),
             Input(self.separated_data_id, 'data'),
             Input(self.entropy_signal_id, 'data'),
         )
-        def update_output_store(dat_id: dict, inputs: dict, separated_path, entropy_path):
-            if dat_id and inputs['valid']:
-                dat = get_dat(dat_id)
+        def update_output_store(dashd_id: dict, inputs: dict, separated_path, entropy_path):
+            if dashd_id and inputs['valid']:
 
                 # Get data from previous processing
                 separated_process = load(separated_path, SeparateSquareProcess)
@@ -780,12 +781,13 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
                 out = process.process()
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
-                with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
-                    process_group = f.require_group('/Process')
+                dashd = DashHDF(dashd_id, 'r+')
+                with dashd:
+                    process_group = dashd.require_group('/Process')
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
                 logger.debug(f'Updating Center and average store')
-                return {'dat_id': dat.dat_id, 'save_path': save_path}
+                return {'dashd_id': dashd.id, 'save_path': save_path}
             return dash.no_update
 
     def get_input_display_layout(self):
@@ -922,26 +924,29 @@ def get_external_data_and_info(dat_id):
     Note: This is the ONLY place that external data should load from.
     """
     dat = get_dat(dat_id)
-    hdf_id = HdfId(page='entropy-process', experiment=dat_id['experiment_name'], number=dat_id['datnum'])
-    dash_hdf = DashHDF(hdf_id)
+    hdf_id = HdfId(page='entropy-process', additional_classifier=dat_id['experiment_name'], number=dat_id['datnum'])
+    dashd = DashHDF(hdf_id, mode='r+')  # TODO: Maybe want to use 'w' mode to overwrite previous?
+    subgroup = None  # In case I later want to save this data in e.g. a "main" group
 
-    dash_hdf.save_data(dat.Data.i_sense, 'i_sense', subgroup=None)
-    dash_hdf.save_data(dat.Data.x, 'x', subgroup=None)
+    with dashd:
+        # Any Data that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
+        dashd.save_data(dat.Data.i_sense, 'i_sense', subgroup=subgroup)
+        dashd.save_data(dat.Data.x, 'x', subgroup=subgroup)
 
-    dash_hdf.save_info(dat.Data.x, 'x', subgroup=None)
+        # Any Info that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
+        dashd.save_info(dat.Logs.measure_freq, 'measure_freq', subgroup=subgroup)
+        dashd.save_info(dat.AWG.info.wave_len/4, 'samples_per_setpoint', subgroup=subgroup)
 
-
-    return dash_hdf.hdf_id.asdict()
-
+    return dashd.id
 
 # dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
-stores = [dat_selection]
+stores = [dat_selection, external_data_path_store]
 
 # Initialize Interfaces that help make dash page
 # Separating into parts of heating wave
 separate_interface = SeparateProcessInterface()
 separate_interface.set_data_input_ids(None)
-separate_interface.set_other_input_ids(dat_id=dat_selection.id)
+separate_interface.set_other_input_ids(dashdata_id=external_data_path_store.id)
 
 stores.append(separate_interface.get_stores())
 separate_inputs = separate_interface.get_user_inputs_layout()
@@ -960,7 +965,7 @@ separate_interface.callback_output_display()
 # Turning into Entropy signal
 signal_interface = EntropySignalInterface()
 signal_interface.set_data_input_ids(previous_process_id=separate_interface.output_store_id)
-signal_interface.set_other_input_ids(dat_id=dat_selection.id)
+signal_interface.set_other_input_ids(dashd_id=external_data_path_store.id)
 
 stores.append(signal_interface.get_stores())
 signal_inputs = signal_interface.get_user_inputs_layout()
@@ -982,7 +987,7 @@ centering_interface.set_data_input_ids(
     separated_data_id=separate_interface.output_store_id,
     entropy_signal_id=signal_interface.output_store_id,
 )
-centering_interface.set_other_input_ids(dat_id=dat_selection.id)
+centering_interface.set_other_input_ids(dashd_id=external_data_path_store.id)
 
 stores.append(centering_interface.get_stores())
 centering_inputs = centering_interface.get_user_inputs_layout()

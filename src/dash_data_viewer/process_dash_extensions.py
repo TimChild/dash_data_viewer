@@ -13,11 +13,10 @@ import uuid
 from dat_analysis.analysis_tools.new_procedures import Process, SeparateSquareProcess
 from dash_data_viewer.layout_util import label_component
 import dash_data_viewer.components as c
+from dash_data_viewer.dash_hdf import DashHDF
 
 from dash_data_viewer.components import CollapseAIO
 
-from dat_analysis import get_dat
-from dat_analysis.hdf_file_handler import HDFFileHandler
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
@@ -26,15 +25,15 @@ NOT_SET = object()  # To be able to check if things still need to be set
 
 T = TypeVar('T', bound=Process)
 def load(location_dict: dict, process_class: Type[T]) -> T:
-    dat_id = location_dict.get('dat_id', None)
+    dashd_id = location_dict.get('dashd_id', None)
     save_path = location_dict.get('save_path', None)
-    if dat_id and save_path:
-        dat = get_dat(id=dat_id)
-        with HDFFileHandler(dat.hdf.hdf_path, 'r') as f:
-            group = f.get(save_path)
+    if dashd_id and save_path:
+        dashd = DashHDF(dashd_id, 'r')
+        with dashd:
+            group = dashd.get(save_path)
             process = process_class.load_progress(group)
         return process
-    raise ValueError(f'dat_id or save_path not found in location_dict ({location_dict})')
+    raise ValueError(f'dashd_id or save_path not found in location_dict ({location_dict})')
 
 
 class ProcessInterface(abc.ABC):
@@ -243,7 +242,7 @@ class TemplateProcessInterface(ProcessInterface):
         self.input_b_id = ID('input-b')
 
         # Other Required Input IDs
-        self.dat_id = NOT_SET
+        self.dashd_id = NOT_SET
         self.existing_input_id = NOT_SET
 
         # Data input IDs
@@ -255,7 +254,7 @@ class TemplateProcessInterface(ProcessInterface):
         self.out_graph_id = ID('graph-out')  # Display output of this Process
 
     def set_other_input_ids(self, dat_id, existing_c_id):
-        self.dat_id = dat_id
+        self.dashd_id = dat_id
         self.existing_input_id = existing_c_id
 
     def set_data_input_ids(self, previous_process_id):
@@ -293,17 +292,16 @@ class TemplateProcessInterface(ProcessInterface):
 
     def callback_output_store(self):
         """Update output store using sanitized inputs and data"""
-        assert self.dat_id is not NOT_SET
+        assert self.dashd_id is not NOT_SET
 
         @callback(
             Output(self.output_store_id, 'data'),
-            Input(self.dat_id, 'value'),
+            Input(self.dashd_id, 'value'),
             Input(self.sanitized_store_id, 'data'),
             Input(self.data_input_id, 'data'),
         )
-        def update_output_store(dat_id, inputs: dict, data_path: dict):
+        def update_output_store(dashd_id, inputs: dict, data_path: dict):
             # # Get data from previous processing
-            # dat = get_dat(dat_id)
             # previous_process = load(data_path, PreviousProcess)
             # out = previous_process.outputs
             # useful_x, useful_data = out['x'], out['data']
@@ -314,11 +312,12 @@ class TemplateProcessInterface(ProcessInterface):
             # out = process.process()
             #
             # # Rather than pass big datasets etc, save the Process and return the location to load it
-            # with HDFFileHandler(dat.hdf.hdf_path, 'r+') as f:
-            #     process_group = f.require_group('/Process')
+            # dashd = DashHDF(dashd_id, mode='r+)
+            # with dashd:
+            #     process_group = dashd.require_group('/Process')
             #     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
             #     save_path = save_group.name
-            # return {'dat_id': dat.dat_id, 'save_path': save_path}
+            # return {'dashd_id': dashd.id, 'save_path': save_path}
             pass
 
     def get_input_display_layout(self):
