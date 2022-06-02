@@ -21,9 +21,9 @@ if TYPE_CHECKING:
     from dash.development.base_component import Component
 
 
-LOCK = GlobalLock('test_file.txt.lock')
-TEST_FILE = 'test_file.txt'
-TEST_FILE2 = 'test_file2.txt'
+LOCK = GlobalLock('test_page_storage/test_file.txt.lock')
+TEST_FILE = 'test_page_storage/test_file.txt'
+TEST_FILE2 = 'test_page_storage/test_file2.txt'
 
 
 def get_data(data_or_location: Union[str, list]) -> np.ndarray:

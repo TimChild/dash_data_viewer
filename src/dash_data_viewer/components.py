@@ -13,6 +13,7 @@ import tempfile
 import filelock
 import os
 import time
+from deprecation import deprecated
 
 from dat_analysis import useful_functions as u
 
@@ -66,8 +67,9 @@ class TemplateAIO(html.Div):
 
 def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text', max=None, maxlength=None, min=None,
            minlength=None, step=None, size='md', valid=False, required=False, placeholder='', name='', debounce=True,
-           persistence=False, persistence_type='local', **kwargs) -> dbc.Input:
+           persistence=False, persistence_type='session', **kwargs) -> dbc.Input:
     """
+    Wrapper around dbc.Input with some different default values
 
     Args:
         id (): ID in page
@@ -87,7 +89,7 @@ def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text
         name (): Name of component submitted with form data
         debounce (): Update only on focus loss or enter key
         persistence (): Whether the value should persist
-        persistence_type (): (a value equal to: 'local', 'session', 'memory'; default 'local'). memory: only kept in memory, reset on page refresh. local: window.localStorage, data is kept after the browser quit. session: window.sessionStorage, data is cleared once the browser quit.
+        persistence_type (): (a value equal to: 'local', 'session', 'memory'; default 'local'). memory: only kept in memory, reset on page refresh. local: window.localStorage, data is kept after the browser quit (Note: Shared across multiple browser tabs/windows). session: window.sessionStorage, data is cleared once the browser quit.
         **kwargs (): Any other kwargs accepted by dbc.Input
 
     Returns:
@@ -101,13 +103,13 @@ def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text
 
 class CollapseAIO(html.Div):
     """
-    DESCRIPTION
+    A collapsable div that handles the Callbacks for collapsing/expanding
 
     # Requires
-    What components require outside callbacks in order to work (if any)
+    None - self contained (just put content in)
 
     # Provides
-    What component outputs are intended to be used by other callbacks (if any)
+    None - self contained.
 
     """
 
@@ -151,8 +153,8 @@ class CollapseAIO(html.Div):
 
 class DatnumPickerAIO(html.Div):
     """
-    A group of buttons with custom text where one can be selected at a time and returns either the text or a specific
-    value
+    A group of buttons with custom text where one or multiple dats can be selected at a time.
+    Selected dats are accessed through (picker.dd_id, 'value')
 
     Examples:
         picker = DatnumPickerAIO(aio_id='testpage-datpicker')  # Fixed ID required for persistence to work
@@ -463,64 +465,7 @@ class MultiButtonAIO(html.Div):
         return asdict(current_data), colors
 
 
-class TestAIO(html.Div):
-    """
-    DESCRIPTION
-
-    Examples:
-        # Example init
-        ex = TemplateAIO()
-
-        # Example use of any main components
-        @callback(
-            Input(ex.store_id, 'data'),
-            Output(ex.val_id, 'value'),
-        )
-        def foo(data: list[str]) -> str:  # Showing type of arguments
-    """
-
-    # Functions to create pattern-matching callbacks of the subcomponents
-    class ids:
-        @staticmethod
-        def input(aio_id, key):
-            return {
-                'component': 'TemplateAIO',
-                'subcomponent': f'input',
-                'key': key,
-                'aio_id': aio_id,
-            }
-
-        @staticmethod
-        def div(aio_id, key):
-            return {
-                'component': 'TemplateAIO',
-                'subcomponent': f'div',
-                'key': key,
-                'aio_id': aio_id,
-            }
-
-    # Make the ids class a public class
-    ids = ids
-
-    def __init__(self, aio_id=None):
-        if aio_id is None:
-            aio_id = str(uuid.uuid4())
-
-        input = dbc.Input(id=self.ids.input(aio_id, True))
-        div = html.Div(id=self.ids.div(aio_id, 0), children='Nothing Updated')
-        super().__init__(children=[input, div])  # html.Div contains layout
-
-    @staticmethod
-    @callback(
-        Output(ids.div(MATCH, ALL), 'children'),
-        Input(ids.input(MATCH, ALL), 'value'),
-    )
-    def function(value):
-        logging.info(f'value = {value}')
-        logging.info(get_triggered().id)
-        return [value]
-
-
+@deprecated(deprecated_in='20220601', details='Need to think more about this and the use of local storage (i.e. it is bad that it is not session independent...)')
 class ConfigAIO(html.Div):
     """
     Config designed to store app-wide settings (i.e. which experiment is being run, maybe even which system the
@@ -618,14 +563,13 @@ class ConfigAIO(html.Div):
 
 class GraphAIO(html.Div):
     """
-    DESCRIPTION
+    Displays a graph an adds some options for download of the data or figure
 
     # Requires
-    What components require outside callbacks in order to work (if any)
+    self.graph_id, 'figure' -- should be updated to update the figure in the graph
 
     # Provides
-    What component outputs are intended to be used by other callbacks (if any)
-
+    None
     """
 
     # Functions to create pattern-matching callbacks of the subcomponents

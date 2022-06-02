@@ -8,6 +8,7 @@ from dash_data_viewer.components import ConfigAIO
 
 app = dash.Dash(__name__, plugins=[pages_plugin], external_stylesheets=[dbc.themes.BOOTSTRAP])
 
+# TODO: 20220601 -- Remove the configAIO, doesn't work across multiple sessions, need to figure out another way
 config_aio = ConfigAIO(experiment_options=['Nov21Tim', 'Nov21LD', 'FebMar21Tim'])
 
 app.layout = dbc.Container([
