@@ -99,12 +99,12 @@ def ensure_selections_dict(d):
     Input('dd-data-names', 'value'),
 
 )
-def store_user(old_selections, new_host, new_user, new_exp, new_datnum, new_dataname):
+def store_selections(old_selections, new_host, new_user, new_exp, new_datnum, new_dataname):
     old_selections = ensure_selections_dict(old_selections)
-    print(f'store_user: {old_selections}')
+    print(f'store_selections: {old_selections}, {new_host, new_user, new_exp, new_datnum, new_dataname}')
     updated = False
     for k, v in {'host': new_host, 'user': new_user, 'experiment': new_exp, 'datnum': new_datnum, 'data': new_dataname}.items():
-        if v and v != old_selections[k]:
+        if v != old_selections[k]:
             updated = True
             old_selections[k] = v
     if updated:
@@ -123,7 +123,7 @@ def update_user_options(host_name, current_selections):
     current_selections = ensure_selections_dict(current_selections)
     # new_user = dash.no_update
     new_user = None
-    new_options = None
+    new_options = []
     print(f'update_user: {host_name}, {current_selections}')
     if host_name:
         new_options = os.listdir(os.path.join(ddir, host_name))
@@ -138,7 +138,7 @@ def update_user_options(host_name, current_selections):
     Output('dd-experiment-name', 'options'),
     Output('dd-experiment-name', 'value'),
     State('store-selections', 'data'),
-    Input('dd-host-name', 'value'),
+    State('dd-host-name', 'value'),
     Input('dd-user-name', 'value'),
 )
 def update_experiment_options(current_selections, host_name, user_name):
@@ -148,12 +148,14 @@ def update_experiment_options(current_selections, host_name, user_name):
     # user = selections['user'] if selections['user'] else ''
     user = user_name
 
-    print(f'update_user: {host_name}, {current_selections}')
-    new_exp = dash.no_update
-    new_options = dash.no_update
+    print(f'update_experiment: {host_name, user_name}, {current_selections}')
+    new_exp = None
+    new_options = []
     if host and user:
         new_options = os.listdir(os.path.join(ddir, host, user))
-        if current_selections['experiment'] not in new_options:
+        if current_selections['experiment'] in new_options:
+            new_exp = current_selections['experiment']
+        else:
             new_exp = None
     return new_options, new_exp
 
