@@ -58,24 +58,57 @@ Overall aim
 global_persistence = 'session'
 persistence_on = True
 
+ddir = config['loading']['path_to_measurement_data']
+host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
+
 dat_selector = html.Div([
-    label_component(c.Input_(id='inp-host-name', placeholder='e.g. qdev-xld',
-                             persistence=persistence_on, persistence_type=global_persistence), 'Host Name'),
-    label_component(c.Input_(id='inp-user-name', placeholder='e.g. Tim',
-                             persistence=persistence_on, persistence_type=global_persistence), 'User Name'),
-    label_component(c.Input_(id='inp-experiment-name', placeholder='e.g. 202206_TestCondKondoQPC',
-                             persistence=persistence_on, persistence_type=global_persistence), 'User Name'),
-    label_component(c.Input_(id='inp-datnum', placeholder='e.g. 1', inputmode='numeric',
-                             persistence=persistence_on, persistence_type=global_persistence), 'Datnum'),
+    label_component(dcc.Dropdown(id='dd-host-name', options=host_options, persistence=persistence_on, persistence_type=global_persistence), 'Host Name'),
+    label_component(dcc.Dropdown(id='dd-user-name', persistence=persistence_on, persistence_type=global_persistence), 'User Name'),
+    label_component(dcc.Dropdown(id='dd-experiment-name', persistence=persistence_on, persistence_type=global_persistence), 'Experiment Name'),
+    label_component(c.Input_(id='inp-datnum', placeholder='0', persistence=persistence_on, persistence_type=global_persistence), 'Datnum'),
     label_component(dbc.RadioButton(id='tog-raw'), 'Raw'),
     dcc.Store('store-data-path')
 ])
 
+
+@callback(
+    Output('dd-user-name', 'options'),
+    Output('dd-user-name', 'value'),
+    Input('dd-host-name', 'value'),
+    State('dd-user-name', 'value'),
+)
+def update_user_options(host_name, current_user):
+    new_user = dash.no_update
+    new_options = dash.no_update
+    if host_name:
+        new_options = os.listdir(os.path.join(ddir, host_name))
+        if current_user not in new_options:
+            new_user = None
+    return new_options, new_user
+
+
+@callback(
+    Output('dd-experiment-name', 'options'),
+    Output('dd-experiment-name', 'value'),
+    State('dd-host-name', 'value'),
+    Input('dd-user-name', 'value'),
+    State('dd-experiment-name', 'value'),
+)
+def update_user_options(host_name, user_name, current_experiment_name):
+    new_exp = dash.no_update
+    new_options = dash.no_update
+    if host_name and user_name:
+        new_options = os.listdir(os.path.join(ddir, host_name, user_name))
+        if current_experiment_name not in new_options:
+            new_exp = None
+    return new_options, new_exp
+
+
 @callback(
     Output('store-data-path', 'data'),
-    Input('inp-host-name', 'value'),
-    Input('inp-user-name', 'value'),
-    Input('inp-experiment-name', 'value'),
+    Input('dd-host-name', 'value'),
+    Input('dd-user-name', 'value'),
+    Input('dd-experiment-name', 'value'),
     Input('inp-datnum', 'value'),
     Input('tog-raw', 'value'),
 )
