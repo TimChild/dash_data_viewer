@@ -67,22 +67,69 @@ dat_selector = html.Div([
     label_component(dcc.Dropdown(id='dd-experiment-name', persistence=persistence_on, persistence_type=global_persistence), 'Experiment Name'),
     label_component(c.Input_(id='inp-datnum', placeholder='0', persistence=persistence_on, persistence_type=global_persistence), 'Datnum'),
     label_component(dbc.RadioButton(id='tog-raw'), 'Raw'),
-    dcc.Store('store-data-path')
+    dcc.Store('store-data-path'),
+    dcc.Store('store-selections', storage_type='session'),
 ])
+
+
+def _default_selections_dict():
+    return {
+        'host': None,
+        'user': None,
+        'experiment': None,
+        'datnum': None,
+        'data': None,
+    }
+
+
+def ensure_selections_dict(d):
+    """If not already a proper selections dict, will replace with default one"""
+    if not d or not isinstance(d, dict) or _default_selections_dict().keys() != d.keys():
+        d = _default_selections_dict()
+    return d
+
+
+@callback(
+    Output('store-selections', 'data'),
+    State('store-selections', 'data'),
+    Input('dd-host-name', 'value'),
+    Input('dd-user-name', 'value'),
+    Input('dd-experiment-name', 'value'),
+    Input('inp-datnum', 'value'),
+    Input('dd-data-names', 'value'),
+
+)
+def store_user(old_selections, new_host, new_user, new_exp, new_datnum, new_dataname):
+    old_selections = ensure_selections_dict(old_selections)
+    print(f'store_user: {old_selections}')
+    updated = False
+    for k, v in {'host': new_host, 'user': new_user, 'experiment': new_exp, 'datnum': new_datnum, 'data': new_dataname}.items():
+        if v and v != old_selections[k]:
+            updated = True
+            old_selections[k] = v
+    if updated:
+        return old_selections
+    else:
+        return dash.no_update
 
 
 @callback(
     Output('dd-user-name', 'options'),
     Output('dd-user-name', 'value'),
     Input('dd-host-name', 'value'),
-    State('dd-user-name', 'value'),
+    State('store-selections', 'data'),
 )
-def update_user_options(host_name, current_user):
-    new_user = dash.no_update
-    new_options = dash.no_update
+def update_user_options(host_name, current_selections):
+    current_selections = ensure_selections_dict(current_selections)
+    # new_user = dash.no_update
+    new_user = None
+    new_options = None
+    print(f'update_user: {host_name}, {current_selections}')
     if host_name:
         new_options = os.listdir(os.path.join(ddir, host_name))
-        if current_user not in new_options:
+        if current_selections['user'] in new_options:
+            new_user = current_selections['user']
+        else:
             new_user = None
     return new_options, new_user
 
@@ -90,16 +137,23 @@ def update_user_options(host_name, current_user):
 @callback(
     Output('dd-experiment-name', 'options'),
     Output('dd-experiment-name', 'value'),
-    State('dd-host-name', 'value'),
+    State('store-selections', 'data'),
+    Input('dd-host-name', 'value'),
     Input('dd-user-name', 'value'),
-    State('dd-experiment-name', 'value'),
 )
-def update_user_options(host_name, user_name, current_experiment_name):
+def update_experiment_options(current_selections, host_name, user_name):
+    current_selections = ensure_selections_dict(current_selections)
+    # host = current_selections['host'] if current_selections['host'] else ''
+    host = host_name
+    # user = selections['user'] if selections['user'] else ''
+    user = user_name
+
+    print(f'update_user: {host_name}, {current_selections}')
     new_exp = dash.no_update
     new_options = dash.no_update
-    if host_name and user_name:
-        new_options = os.listdir(os.path.join(ddir, host_name, user_name))
-        if current_experiment_name not in new_options:
+    if host and user:
+        new_options = os.listdir(os.path.join(ddir, host, user))
+        if current_selections['experiment'] not in new_options:
             new_exp = None
     return new_options, new_exp
 
