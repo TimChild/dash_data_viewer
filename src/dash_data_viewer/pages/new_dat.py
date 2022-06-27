@@ -58,17 +58,18 @@ Overall aim
 global_persistence = 'session'
 persistence_on = True
 
+
 ddir = config['loading']['path_to_measurement_data']
 host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
 
 dat_selector = html.Div([
-    label_component(dcc.Dropdown(id='dd-host-name', options=host_options, persistence=persistence_on, persistence_type=global_persistence), 'Host Name'),
-    label_component(dcc.Dropdown(id='dd-user-name', persistence=persistence_on, persistence_type=global_persistence), 'User Name'),
-    label_component(dcc.Dropdown(id='dd-experiment-name', persistence=persistence_on, persistence_type=global_persistence), 'Experiment Name'),
-    label_component(c.Input_(id='inp-datnum', placeholder='0', persistence=persistence_on, persistence_type=global_persistence), 'Datnum'),
+    label_component(dcc.Dropdown(id='dd-host-name', options=host_options, persistence=True, persistence_type=global_persistence), 'Host Name'),
+    label_component(dcc.Dropdown(id='dd-user-name'), 'User Name'),
+    label_component(dcc.Dropdown(id='dd-experiment-name'), 'Experiment Name'),
+    label_component(c.Input_(id='inp-datnum', placeholder='0'), 'Datnum'),
     label_component(dbc.RadioButton(id='tog-raw'), 'Raw'),
     dcc.Store('store-data-path'),
-    dcc.Store('store-selections', storage_type='session'),
+    dcc.Store('store-selections', storage_type=global_persistence),
 ])
 
 
@@ -278,8 +279,6 @@ main = dbc.Container([
 
 
 
-
-
 layout = dbc.Container([
     dbc.Row([
         dbc.Col([sidebar], width=3),
@@ -291,7 +290,7 @@ if __name__ == '__main__':
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
     # app.layout = layout()
     app.layout = layout
-    app.run_server(debug=True, port=8051)
+    app.run_server(debug=True, port=8051, dev_tools_hot_reload=False, use_reloader=False)
 else:
     dash.register_page(__name__)
     pass
