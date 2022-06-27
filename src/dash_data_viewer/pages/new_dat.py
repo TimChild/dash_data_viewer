@@ -1,5 +1,6 @@
 from __future__ import annotations
 import dash
+import json
 import os
 from dash import html, dcc, callback, Input, Output, State
 import dash_bootstrap_components as dbc
@@ -89,19 +90,46 @@ def generate_data_path(host, user, experiment, datnum, raw):
     return data_path
 
 
+data_options = label_component(
+    dcc.Dropdown(id='dd-data-names', value='', options=[]),
+    'Data')
+
+
+@callback(
+    Output('dd-data-names', 'options'),
+    Output('dd-data-names', 'value'),
+    Input('store-data-path', 'data'),
+    State('dd-data-names', 'value'),
+)
+def update_data_options(data_path, current_value):
+    dat = get_dat(data_path)
+    options = []
+    value = None
+    if dat:
+        options = dat.Data.data_keys
+        if current_value and current_value in options:
+            value = current_value
+        elif options:
+            value = options[0]
+    return options, value
+
+
 graphs = html.Div([
     dcc.Graph(id='graph-1', figure=go.Figure())
 ])
 
+
+
 @callback(
     Output('graph-1', 'figure'),
     Input('store-data-path', 'data'),
+    Input('dd-data-names', 'value'),
 )
-def update_graph(data_path) -> go.Figure():
+def update_graph(data_path, data_key) -> go.Figure():
     dat = get_dat(data_path)
     fig = go.Figure()
     if dat:
-        data = dat.Data.get_data(dat.Data.data_keys[0])
+        data = dat.Data.get_data(data_key)
         x = dat.Data.x
         y = dat.Data.y
 
@@ -122,12 +150,35 @@ def update_graph(data_path) -> go.Figure():
 
 logs_info = html.Div([
     html.H3('Logs'),
-    html.P('Logs info here')
+    html.Div(id='div-logs-info', children='Not yet updated')
 ])
+
+@callback(
+    Output('div-logs-info', 'children'),
+    Input('store-data-path', 'data'),
+)
+def update_logs_area(data_path):
+    dat = get_dat(data_path)
+    entries = []
+    if dat:
+        logs = dat.Logs
+        entries.append(dcc.Markdown(f'''Available logs are: {dat.Logs.logs_keys}'''))
+
+        dacs = logs.dacs
+        if dacs is not None and isinstance(dacs, dict):
+            entries.append(dcc.Markdown(json.dumps(dacs, indent=2)))
+
+        temperatures = logs.temperatures
+        if temperatures is not None and isinstance(temperatures, dict):
+            entries.append(dcc.Markdown(json.dumps(temperatures, indent=2)))
+
+    return html.Div([entry for entry in entries])
+
 
 
 sidebar = dbc.Container([
     dat_selector,
+    data_options
 ],
 )
 
