@@ -204,13 +204,15 @@ def update_data_options(dat_path, current_value):
     return options, value
 
 
+g1 = c.GraphAIO(aio_id='graph-1', figure=None)
 graphs = html.Div([
-    dcc.Graph(id='graph-1', figure=go.Figure())
+    g1,
 ])
 
 
 @callback(
-    Output('graph-1', 'figure'),
+    # Output('graph-1', 'figure'),
+    Output(g1.graph_id, 'figure'),
     Input('store-data-path', 'data'),
     Input('dd-data-names', 'value'),
 )
