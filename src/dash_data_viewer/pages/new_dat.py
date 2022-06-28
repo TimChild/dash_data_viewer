@@ -16,7 +16,7 @@ from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
 from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index, mean_data
 from dat_analysis.plotting.plotly.dat_plotting import OneD
 from dat_analysis.new_dat.dat_hdf import get_dat_from_exp_filepath
-from dat_analysis.new_dat.new_dat_util import get_local_config
+from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
 
 import logging
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ Overall aim
 
 """
 
-global_persistence = 'session'
+global_persistence = 'local'
 persistence_on = True
 
 
@@ -66,8 +66,8 @@ dat_selector = html.Div([
     label_component(dcc.Dropdown(id='dd-host-name', options=host_options, persistence=True, persistence_type=global_persistence), 'Host Name'),
     label_component(dcc.Dropdown(id='dd-user-name'), 'User Name'),
     label_component(dcc.Dropdown(id='dd-experiment-name'), 'Experiment Name'),
-    label_component(c.Input_(id='inp-datnum', placeholder='0'), 'Datnum'),
-    label_component(dbc.RadioButton(id='tog-raw'), 'Raw'),
+    label_component(c.Input_(id='inp-datnum', placeholder='0', persistence=True, persistence_type=global_persistence), 'Datnum'),
+    label_component(dbc.RadioButton(id='tog-raw', persistence=True, persistence_type=global_persistence), 'Raw'),
     dcc.Store('store-data-path'),
     dcc.Store('store-selections', storage_type=global_persistence),
 ])
@@ -78,8 +78,8 @@ def _default_selections_dict():
         'host': None,
         'user': None,
         'experiment': None,
-        'datnum': None,
-        'data': None,
+        'datnum': None,  # Not using yet
+        'data': None,  # Not using yet
     }
 
 
@@ -169,7 +169,7 @@ def update_experiment_options(current_selections, host_name, user_name):
     Input('inp-datnum', 'value'),
     Input('tog-raw', 'value'),
 )
-def generate_data_path(host, user, experiment, datnum, raw):
+def generate_dat_path(host, user, experiment, datnum, raw):
     host = host if host else ''
     user = user if user else ''
     experiment = experiment if experiment else ''
@@ -191,8 +191,8 @@ data_options = label_component(
     Input('store-data-path', 'data'),
     State('dd-data-names', 'value'),
 )
-def update_data_options(data_path, current_value):
-    dat = get_dat(data_path)
+def update_data_options(dat_path, current_value):
+    dat = get_dat(dat_path)
     options = []
     value = None
     if dat:
@@ -207,7 +207,6 @@ def update_data_options(data_path, current_value):
 graphs = html.Div([
     dcc.Graph(id='graph-1', figure=go.Figure())
 ])
-
 
 
 @callback(
@@ -237,11 +236,11 @@ def update_graph(data_path, data_key) -> go.Figure():
     return fig
 
 
-
 logs_info = html.Div([
     html.H3('Logs'),
     html.Div(id='div-logs-info', children='Not yet updated')
 ])
+
 
 @callback(
     Output('div-logs-info', 'children'),
@@ -259,11 +258,15 @@ def update_logs_area(data_path):
             entries.append(dcc.Markdown(json.dumps(dacs, indent=2)))
 
         temperatures = logs.temperatures
-        if temperatures is not None and isinstance(temperatures, dict):
-            entries.append(dcc.Markdown(json.dumps(temperatures, indent=2)))
+        if temperatures is not None:
+            try:
+                temp_dict = temperatures.asdict()
+                entries.append(dcc.Markdown(json.dumps(temp_dict, indent=2, cls=NpEncoder)))
+            except TypeError as e:
+                logger.error(f'TypeError when loading temperatures ({temperatures})\n'
+                             f'Error: {e}')
 
     return html.Div([entry for entry in entries])
-
 
 
 sidebar = dbc.Container([
@@ -278,11 +281,10 @@ main = dbc.Container([
 ])
 
 
-
 layout = dbc.Container([
     dbc.Row([
-        dbc.Col([sidebar], width=3),
-        dbc.Col([main], width=9)
+        dbc.Col([sidebar], width=4),
+        dbc.Col([main], width=8)
     ])
 ], fluid=True)
 
