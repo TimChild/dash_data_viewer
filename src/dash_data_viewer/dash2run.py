@@ -1,12 +1,12 @@
 import dash
 from dash import callback, Output, Input
 import dash_bootstrap_components as dbc
-import pages_plugin
+# import pages_plugin
 from dash_data_viewer.cache import cache
 import argparse
 from dash_data_viewer.components import ConfigAIO
 
-app = dash.Dash(__name__, plugins=[pages_plugin], external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # TODO: 20220601 -- Remove the configAIO, doesn't work across multiple sessions, need to figure out another way
 config_aio = ConfigAIO(experiment_options=['Nov21Tim', 'Nov21LD', 'FebMar21Tim'])
@@ -18,7 +18,6 @@ app.layout = dbc.Container([
         if page['module'] != 'pages.not_found_404'
                      ]+[dbc.Button('Config', id='main-configToggle')]),
     dbc.Collapse(id='main-configCollapse', children=config_aio, is_open=False),
-    pages_plugin.page_container,
 ], fluid=True)
 
 
