@@ -17,24 +17,27 @@ from dat_analysis.useful_functions import data_to_json, data_from_json, get_data
 from dat_analysis.plotting.plotly.dat_plotting import OneD
 from dat_analysis.new_dat.dat_hdf import get_dat_from_exp_filepath
 from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
+from dat_analysis.hdf_file_handler import GlobalLock
+import tempfile
 
 import logging
 logger = logging.getLogger(__name__)
 
 config = get_local_config()
+global_lock = GlobalLock(os.path.join(tempfile.gettempdir(), 'dash_lock.lock'))
 
 
 def get_dat(data_path):
     dat = None
-    if data_path and os.path.exists(data_path):
-        try:
-            dat = get_dat_from_exp_filepath(experiment_data_path=data_path, overwrite=False)
-        except Exception as e:
-            logger.warning(f'Failed to load dat at {data_path}. Raised {e}')
-    else:
-        logger.info(f'No file at {data_path}')
-
-    return dat
+    with global_lock:
+        if data_path and os.path.exists(data_path):
+            try:
+                dat = get_dat_from_exp_filepath(experiment_data_path=data_path, overwrite=False)
+            except Exception as e:
+                logger.warning(f'Failed to load dat at {data_path}. Raised {e}')
+        else:
+            logger.info(f'No file at {data_path}')
+        return dat
 
 
 
@@ -211,7 +214,6 @@ graphs = html.Div([
 
 
 @callback(
-    # Output('graph-1', 'figure'),
     Output(g1.graph_id, 'figure'),
     Input('store-data-path', 'data'),
     Input('dd-data-names', 'value'),
@@ -224,6 +226,11 @@ def update_graph(data_path, data_key) -> go.Figure():
         x = dat.Data.x
         y = dat.Data.y
 
+        fig.update_layout(
+            title=f'Dat{dat.datnum}: {data_key}',
+        )
+        fig.update_xaxes(title_text=dat.Logs.x_label)
+
         if data is not None and data.ndim > 0:
             x = x if x is not None else np.linspace(0, data.shape[-1], data.shape[-1])
 
@@ -231,6 +238,7 @@ def update_graph(data_path, data_key) -> go.Figure():
                 fig.add_trace(go.Scatter(x=x, y=data))
             elif data.ndim == 2:
                 y = y if y is not None else np.linspace(0, data.shape[-2], data.shape[-2])
+                fig.update_yaxes(title_text=dat.Logs.y_label)
                 fig.add_trace(go.Heatmap(x=x, y=y, z=data))
             else:
                 pass
@@ -271,6 +279,45 @@ def update_logs_area(data_path):
     return html.Div([entry for entry in entries])
 
 
+all_graphs = html.Div(id='div-all-graphs')
+
+@callback(
+    Output('div-all-graphs', 'children'),
+    Input('store-data-path', 'data'),
+    Input('dd-data-names', 'value'),
+)
+def generate_all_data_graphs(dat_path, avoid_selected):
+    dat = get_dat(dat_path)
+    figs = []
+    if dat:
+        x = dat.Data.x
+        y = dat.Data.y
+        for k in dat.Data.data_keys:
+            if k != avoid_selected:
+                fig = go.Figure()
+                data = dat.Data.get_data(k)
+                if data is not None and data.ndim > 0:
+                    x = x if x is not None else np.linspace(0, data.shape[-1], data.shape[-1])
+                    fig.update_layout(
+                        title=f'Dat{dat.datnum}: {k}',
+                    )
+                    fig.update_xaxes(title_text=dat.Logs.x_label)
+                    if data.ndim == 1:
+                        fig.add_trace(go.Scatter(x=x, y=data))
+                        figs.append(fig)
+                    elif data.ndim == 2:
+                        y = y if y is not None else np.linspace(0, data.shape[-2], data.shape[-2])
+                        fig.add_trace(go.Heatmap(x=x, y=y, z=data))
+                        fig.update_yaxes(title_text=dat.Logs.y_label)
+                        figs.append(fig)
+                    else:
+                        pass
+    dash_figs = [c.GraphAIO(figure=fig) for fig in figs]
+    if not dash_figs:
+        dash_figs = html.Div('No other data to display')
+    return dash_figs
+
+
 sidebar = dbc.Container([
     dat_selector,
     data_options
@@ -279,7 +326,8 @@ sidebar = dbc.Container([
 
 main = dbc.Container([
    graphs,
-   logs_info
+   logs_info,
+    all_graphs,
 ])
 
 
