@@ -91,6 +91,7 @@ class DatSelector(html.Div):
         host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
         layout = html.Div([
             dcc.Store(id=self.ids.generic(aio_id, 'aio_id'), data=aio_id),
+            dcc.Store(id=self.ids.generic(aio_id, 'selections'), storage_type='session'),
             html.H5('Folder/File Path:'),
             label_component(dcc.Dropdown(id=self.ids.generic(aio_id, 'host'), options=host_options, persistence=True,
                                          persistence_type='session'), 'Host Name'),
@@ -120,18 +121,33 @@ class DatSelector(html.Div):
         Input(ids.generic(MATCH, 'user'), 'value'),
         State(ids.generic(MATCH, 'aio_id'), 'data'),
         State(ids.generic(MATCH, 'div-experiment-selections'), 'children'),
+        State(ids.generic(MATCH, 'selections'), 'data'),
     )
-    def add_dropdown_for_experiment(values, host, user, aio_id, existing):
+    def add_dropdown_for_experiment(values, host, user, aio_id, existing, stored_values):
         """Always aim to have an empty dropdown available (i.e. for next depth of folders)"""
-        # If host or user is the trigger
         values = [v if v else '' for v in values]
+
+        # If host or user is trigger, or no experiment dropdowns already
         if any([v == ctx.triggered_id.get('key', None) if ctx.triggered_id else False for v in ['host', 'user']]) or not existing:
             if host and user:
-                if not existing or not os.path.exists(os.path.join(host, user, *values)):
-                    opts = os.listdir(os.path.join(ddir, host, user))
+                opts = os.listdir(os.path.join(ddir, host, user))
+                if not existing and stored_values:  # Page reload
+                    stored_values = [s if s else '' for s in stored_values]
+                    if os.path.exists(os.path.join(ddir, host, user, *stored_values)):
+                        dds = []
+                        p = os.path.join(ddir, host, user)
+                        for v in stored_values:
+                            opts = os.listdir(p)
+                            dds.append(dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, 0), options=opts, value=v))
+                            p = os.path.join(p, v)
+                        return dds
+                    else:
+                        return [dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, 0), options=opts)]
+                elif not existing or not os.path.exists(os.path.join(host, user, *values)):  # Make first set of options
                     return [dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, 0), options=opts)]
-            else:
+            else:  # Don't know what options to show yet
                 return []
+        # If there are existing dropdowns, decide if some need to be removed or added
         elif values:
             for i, v in enumerate(values):
                 if not v and i < len(values) - 1:
@@ -159,3 +175,12 @@ class DatSelector(html.Div):
         user = user if user else ''
         exp_path = [p if p else '' for p in exp_path]
         return os.path.join(ddir, host, user, *exp_path)
+
+    @staticmethod
+    @callback(
+        Output(ids.generic(MATCH, 'selections'), 'data'),
+        Input(ids.file_dropdown(MATCH, ALL), 'value'),
+    )
+    def persistent_selections(values):
+        return values
+
