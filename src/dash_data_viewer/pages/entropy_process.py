@@ -35,6 +35,7 @@ logger.setLevel(logging.DEBUG)
 DELTA = '\u0394'
 SIGMA = '\u03c3'
 
+
 def get_transition_parts(part: Union[str, int]) -> Union[tuple, int]:
     if isinstance(part, str):
         part = part.lower()

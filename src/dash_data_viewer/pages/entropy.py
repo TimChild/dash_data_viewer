@@ -1,4 +1,4 @@
-from __future__ import annotations
+# from __future__ import annotations
 import dash
 import copy
 import numpy as np
@@ -24,6 +24,7 @@ from dat_analysis.dat_object.attributes.square_entropy import process_avg_parts
 from dat_analysis.characters import DELTA, PM
 from dat_analysis import useful_functions as U
 from dat_analysis.dat_object.attributes.entropy import scaling, IntegrationInfo
+from dat_analysis.dat_object.dat_hdf import DatHDF
 
 # from dash_data_viewer.layout_util import label_component
 
@@ -34,6 +35,11 @@ if TYPE_CHECKING:
     from dat_analysis.dat_object.dat_hdf import DatHDF
 
 FLOAT_REGEX = '^(-)?\d*(\.\d+)?$'
+
+
+@dataclass()
+class Test:
+    a: int
 
 
 def sanitize_floats(*args):
@@ -535,7 +541,7 @@ sidebar_components = SidebarComponents()
     Input(EntropySignalAIO.ids.generic(MATCH, 'input', 'step_delay'), 'n_blur'),
     State(EntropySignalAIO.ids.generic(MATCH, 'input', 'step_delay'), 'value'),
     State(sidebar_components.datnum.dd_id, 'value'),
-    State(c.ConfigAIO.store_id, 'data'),
+    State(c.ConfigAIO.ids.store(), 'data'),
     prevent_initial_callback=True,
 )
 def sanitize_step_delay(trigger, value, datnum, config):
@@ -564,7 +570,7 @@ def check_dat_valid(dat: DatHDF) -> bool:
     Input(sidebar_components.datnum.dd_id, 'value'),
     State(sidebar_components.entropy_signal_controls.store_id, 'data'),
     State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
-    State(c.ConfigAIO.store_id, 'data'),
+    State(c.ConfigAIO.ids.store(), 'data'),
 )
 def update_signal_div(clicks, datnum, signal_info, square_info, config):
     config = c.ConfigAIO.config_from_dict(config)
@@ -725,7 +731,7 @@ def update_signal_div(clicks, datnum, signal_info, square_info, config):
     Input(sidebar_components.datnum.dd_id, 'value'),
     State(sidebar_components.entropy_signal_controls.store_id, 'data'),
     State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
-    State(c.ConfigAIO.store_id, 'data'),
+    State(c.ConfigAIO.ids.store(), 'data'),
 )
 def update_fit_div(clicks, datnum, signal_info, square_info, config):
     config = c.ConfigAIO.config_from_dict(config)
@@ -801,7 +807,7 @@ def update_fit_div(clicks, datnum, signal_info, square_info, config):
     State(sidebar_components.entropy_signal_controls.square_store_id, 'data'),
     State(sidebar_components.integrated_entropy_controls.store_id, 'data'),
     State(sidebar_components.integrated_entropy_controls.dt_store_id, 'data'),
-    State(c.ConfigAIO.store_id, 'data'),
+    State(c.ConfigAIO.ids.store(), 'data'),
 )
 def update_fit_div(clicks, datnum, signal_info, square_info, integrated_info, dt_info, config):
     config = c.ConfigAIO.config_from_dict(config)

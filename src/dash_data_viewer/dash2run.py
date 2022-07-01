@@ -1,5 +1,7 @@
 import dash
+import dataclasses
 from dash import callback, Output, Input
+import pages
 import dash_bootstrap_components as dbc
 # import pages_plugin
 from dash_data_viewer.cache import cache
@@ -18,6 +20,7 @@ app.layout = dbc.Container([
         if page['module'] != 'pages.not_found_404'
                      ]+[dbc.Button('Config', id='main-configToggle')]),
     dbc.Collapse(id='main-configCollapse', children=config_aio, is_open=False),
+    dash.page_container
 ], fluid=True)
 
 

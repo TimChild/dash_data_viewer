@@ -1,7 +1,8 @@
-from __future__ import annotations
+# from __future__ import annotations
 import dash
 import lmfit as lm
 from dash import html, dcc, callback, Input, Output, State
+from dash.dependencies import Component
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import numpy as np
@@ -21,9 +22,6 @@ from dat_analysis.useful_functions import mean_data
 from typing import TYPE_CHECKING, Optional, List, Union
 
 logging.basicConfig(level=logging.INFO)
-
-if TYPE_CHECKING:
-    from dash.development.base_component import Component
 
 
 class MainComponents(object):

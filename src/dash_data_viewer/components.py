@@ -465,7 +465,7 @@ class MultiButtonAIO(html.Div):
         return asdict(current_data), colors
 
 
-@deprecated(deprecated_in='20220601', details='Need to think more about this and the use of local storage (i.e. it is bad that it is not session independent...)')
+# @deprecated(deprecated_in='20220601', details='Need to think more about this and the use of local storage (i.e. it is bad that it is not session independent...)')
 class ConfigAIO(html.Div):
     """
     Config designed to store app-wide settings (i.e. which experiment is being run, maybe even which system the
@@ -514,13 +514,13 @@ class ConfigAIO(html.Div):
     # Make the ids class a public class
     ids = ids
 
-    @classmethod
-    @property
-    def store_id(cls):
-        return cls.ids.store()
+    # @classmethod
+    # @property
+    # def store_id(cls):
+    #     return cls.ids.store()
 
     def __init__(self, experiment_options: list[str]):
-        store = dcc.Store(self.store_id, storage_type='local')
+        store = dcc.Store(self.ids.store(), storage_type='local')
 
         dd_experiment = dcc.Dropdown(id=self.ids.generic('experiment-dd'),
                                      options=[
