@@ -21,10 +21,11 @@ from dash_data_viewer.dash_hdf import DashHDF, HdfId
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
 from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
-from dat_analysis import get_dat
 from dat_analysis.hdf_file_handler import GlobalLock, HDFFileHandler
 from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index, mean_data
 from dat_analysis.plotting.plotly.dat_plotting import OneD
+
+from dash_data_viewer.new_dat_util import ExperimentFileSelector, get_dat
 
 if TYPE_CHECKING:
     from dash.development.base_component import Component
@@ -54,6 +55,7 @@ def get_transition_parts(part: Union[str, int]) -> Union[tuple, int]:
     else:
         raise ValueError(f'{part} not recognized. Should be in ["hot", "cold", "vp", "vm"]')
     return parts
+
 
 # For now making the Processes here, but should be moved to dat_analysis package
 @dataclass
@@ -364,7 +366,6 @@ class SeparateProcessInterface(ProcessInterface):
             return go.Figure()
 
 
-
 @dataclass
 class EntropySignalProcess(Process):
     """
@@ -545,7 +546,6 @@ class EntropySignalInterface(ProcessInterface):
 
                 return fig2d, fig_avg
             return go.Figure(), go.Figure()
-
 
 
 # @lru_cache(maxsize=500)
@@ -889,27 +889,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
 
 # Actually make the page
 
-# FOR TESTING just using a fixed dat_id (need to fix the DatnumPickerAIO to include config)
-dat_id = {
-    'datnum': 2164,
-    'experiment_name': 'febmar21tim',
-    'datname': 'base',
-}
-dat_picker = dcc.Dropdown(id='testing-fake-datpicker', options=[{'label': 'Dat2164', 'value': 2164}], value=2164)
-dat_selection = dcc.Store(id='testing-store-dat-selection')
-@callback(
-    Output(dat_selection.id, 'data'),
-    Input(dat_picker.id, 'value')
-)
-def update_dat_selection(datnum) -> dict:
-    if datnum:
-        return {
-            'datnum': datnum,
-            'experiment_name': 'febmar21tim',
-            'datname': 'base',
-        }
-    return dat_id  # For testing only anyway
-
+dat_selector = ExperimentFileSelector()
 
 # # Store to hold the DashHDF ID where any external info (i.e. from Dat or File) is stored
 # # This is to avoid relying on any specific original source of data but keep data local and only send pointer to store
@@ -917,15 +897,15 @@ external_data_path_store = dcc.Store(id='entropy-store-from-external')
 
 @callback(
     Output(external_data_path_store.id, 'data'),
-    Input(dat_selection.id, 'data')
+    Input(dat_selector.store_id, 'data'),
 )
-def get_external_data_and_info(dat_id):
+def get_external_data_and_info(dat_filepath):
     """For now this only gets data from Dat, but can later take data from other sources and everything else should
     still work
     Note: This is the ONLY place that external data should load from.
     """
-    dat = get_dat(dat_id)
-    hdf_id = HdfId(page='entropy-process', additional_classifier=dat_id['experiment_name'], number=dat_id['datnum'])
+    dat = get_dat(dat_filepath)
+    hdf_id = HdfId(page='entropy-process', additional_classifier=dat_filepath['experiment_name'], number=dat_filepath['datnum'])
     dashd = DashHDF(hdf_id, mode='r+')  # TODO: Maybe want to use 'w' mode to overwrite previous?
     subgroup = None  # In case I later want to save this data in e.g. a "main" group
 
@@ -941,7 +921,7 @@ def get_external_data_and_info(dat_id):
     return dashd.id
 
 # dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
-stores = [dat_selection, external_data_path_store]
+stores = [external_data_path_store]
 
 # Initialize Interfaces that help make dash page
 # Separating into parts of heating wave
@@ -1009,7 +989,7 @@ layout = html.Div([
     *stores,
     dbc.Row([
         dbc.Col([
-            dat_picker,
+            dat_selector,
             standard_input_layout('Separate Heating Parts', separate_inputs, separate_sanitized),
             standard_input_layout('Make Entropy Signal', signal_inputs, signal_sanitized),
             standard_input_layout('Centering and Averaging', centering_inputs, centering_sanitized),
