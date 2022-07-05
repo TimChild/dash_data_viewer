@@ -4,43 +4,24 @@ import json
 import os
 from dash import html, dcc, callback, Input, Output, State
 import dash_bootstrap_components as dbc
-from typing import TYPE_CHECKING, List, Union, Optional, Any, Tuple
 
 import numpy as np
 import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
+from dash_data_viewer.new_dat_util import get_dat, ExperimentFileSelector
 
-from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
-from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index, mean_data
-from dat_analysis.plotting.plotly.dat_plotting import OneD
-from dat_analysis.new_dat.dat_hdf import get_dat_from_exp_filepath
 from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
 from dat_analysis.hdf_file_handler import GlobalLock
 import tempfile
+
+
 
 import logging
 logger = logging.getLogger(__name__)
 
 config = get_local_config()
-global_lock = GlobalLock(os.path.join(tempfile.gettempdir(), 'dash_lock.lock'))
-
-
-def get_dat(data_path):
-    dat = None
-    with global_lock:
-        if data_path and os.path.exists(data_path):
-            try:
-                dat = get_dat_from_exp_filepath(experiment_data_path=data_path, overwrite=False)
-            except Exception as e:
-                logger.warning(f'Failed to load dat at {data_path}. Raised {e}')
-        else:
-            logger.info(f'No file at {data_path}')
-        return dat
-
-
-
 
 """
 Plan:
@@ -58,128 +39,34 @@ Overall aim
 
 """
 
+
 global_persistence = 'local'
 persistence_on = True
 
 
-ddir = config['loading']['path_to_measurement_data']
-host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
-
-dat_selector = html.Div([
-    label_component(dcc.Dropdown(id='dd-host-name', options=host_options, persistence=True, persistence_type=global_persistence), 'Host Name'),
-    label_component(dcc.Dropdown(id='dd-user-name'), 'User Name'),
-    label_component(dcc.Dropdown(id='dd-experiment-name'), 'Experiment Name'),
-    label_component(c.Input_(id='inp-datnum', placeholder='0', persistence=True, persistence_type=global_persistence), 'Datnum'),
-    label_component(dbc.RadioButton(id='tog-raw', persistence=True, persistence_type=global_persistence), 'Raw'),
-    dcc.Store('store-data-path'),
-    dcc.Store('store-selections', storage_type=global_persistence),
-])
+dat_selector = ExperimentFileSelector()
+data_path_store = dcc.Store(id='store-data-path', storage_type='session')
 
 
-def _default_selections_dict():
-    return {
-        'host': None,
-        'user': None,
-        'experiment': None,
-        'datnum': None,  # Not using yet
-        'data': None,  # Not using yet
-    }
-
-
-def ensure_selections_dict(d):
-    """If not already a proper selections dict, will replace with default one"""
-    if not d or not isinstance(d, dict) or _default_selections_dict().keys() != d.keys():
-        d = _default_selections_dict()
-    return d
-
-
-@callback(
-    Output('store-selections', 'data'),
-    State('store-selections', 'data'),
-    Input('dd-host-name', 'value'),
-    Input('dd-user-name', 'value'),
-    Input('dd-experiment-name', 'value'),
-    Input('inp-datnum', 'value'),
-    Input('dd-data-names', 'value'),
-
-)
-def store_selections(old_selections, new_host, new_user, new_exp, new_datnum, new_dataname):
-    old_selections = ensure_selections_dict(old_selections)
-    print(f'store_selections: {old_selections}, {new_host, new_user, new_exp, new_datnum, new_dataname}')
-    updated = False
-    for k, v in {'host': new_host, 'user': new_user, 'experiment': new_exp, 'datnum': new_datnum, 'data': new_dataname}.items():
-        if v != old_selections[k]:
-            updated = True
-            old_selections[k] = v
-    if updated:
-        return old_selections
-    else:
-        return dash.no_update
-
-
-@callback(
-    Output('dd-user-name', 'options'),
-    Output('dd-user-name', 'value'),
-    Input('dd-host-name', 'value'),
-    State('store-selections', 'data'),
-)
-def update_user_options(host_name, current_selections):
-    current_selections = ensure_selections_dict(current_selections)
-    # new_user = dash.no_update
-    new_user = None
-    new_options = []
-    print(f'update_user: {host_name}, {current_selections}')
-    if host_name:
-        new_options = os.listdir(os.path.join(ddir, host_name))
-        if current_selections['user'] in new_options:
-            new_user = current_selections['user']
-        else:
-            new_user = None
-    return new_options, new_user
-
-
-@callback(
-    Output('dd-experiment-name', 'options'),
-    Output('dd-experiment-name', 'value'),
-    State('store-selections', 'data'),
-    State('dd-host-name', 'value'),
-    Input('dd-user-name', 'value'),
-)
-def update_experiment_options(current_selections, host_name, user_name):
-    current_selections = ensure_selections_dict(current_selections)
-    # host = current_selections['host'] if current_selections['host'] else ''
-    host = host_name
-    # user = selections['user'] if selections['user'] else ''
-    user = user_name
-
-    print(f'update_experiment: {host_name, user_name}, {current_selections}')
-    new_exp = None
-    new_options = []
-    if host and user:
-        new_options = os.listdir(os.path.join(ddir, host, user))
-        if current_selections['experiment'] in new_options:
-            new_exp = current_selections['experiment']
-        else:
-            new_exp = None
-    return new_options, new_exp
+datnum = c.Input_(id='inp-datnum', type='number', value=0, persistence_type=global_persistence, persistence=persistence_on)
+raw_tog = dcc.RadioItems(id='tog-raw', persistence=persistence_on, persistence_type=global_persistence)
 
 
 @callback(
     Output('store-data-path', 'data'),
-    Input('dd-host-name', 'value'),
-    Input('dd-user-name', 'value'),
-    Input('dd-experiment-name', 'value'),
-    Input('inp-datnum', 'value'),
-    Input('tog-raw', 'value'),
+    Input(dat_selector.store_id, 'data'),
+    Input(datnum.id, 'value'),
+    Input(raw_tog.id, 'value'),
 )
-def generate_dat_path(host, user, experiment, datnum, raw):
-    host = host if host else ''
-    user = user if user else ''
-    experiment = experiment if experiment else ''
+def generate_dat_path(filepath, datnum, raw):
     datnum = datnum if datnum else 0
-    base_path = config['loading']['path_to_measurement_data']
-    datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
-    data_path = os.path.join(base_path, host, user, experiment, datfile)
+    data_path = None
+    if filepath and os.path.exists(filepath):
+        if os.path.isdir(filepath):
+            datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
+            data_path = os.path.join(filepath, datfile)
+        else:
+            data_path = filepath
     return data_path
 
 
@@ -320,13 +207,16 @@ def generate_all_data_graphs(dat_path, avoid_selected):
 
 sidebar = dbc.Container([
     dat_selector,
-    data_options
+    datnum,
+    raw_tog,
+    data_options,
+    data_path_store,
 ],
 )
 
 main = dbc.Container([
-   graphs,
-   logs_info,
+    graphs,
+    logs_info,
     all_graphs,
 ])
 
