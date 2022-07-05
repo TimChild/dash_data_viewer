@@ -26,6 +26,7 @@ import tempfile
 
 import logging
 
+
 logger = logging.getLogger(__name__)
 
 config = get_local_config()
@@ -34,7 +35,7 @@ global_lock = GlobalLock(os.path.join(tempfile.gettempdir(), 'dash_lock.lock'))
 ddir = config['loading']['path_to_measurement_data']
 
 
-class DatSelector(html.Div):
+class ExperimentFileSelector(html.Div):
     """
     Select a dat from measurement directory with dropdown menus for each level of folder
     heirarchy
@@ -44,7 +45,7 @@ class DatSelector(html.Div):
     Does require dat_analysis local_config to be set up with a measurement directory and save directory
 
     # Provides
-    Full path to selected Dat
+    Full path to selected Dat or other experiment file or folder
 
     """
 
@@ -138,13 +139,13 @@ class DatSelector(html.Div):
                         p = os.path.join(ddir, host, user)
                         for v in stored_values:
                             opts = os.listdir(p)
-                            dds.append(dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, 0), options=opts, value=v))
+                            dds.append(dcc.Dropdown(id=ExperimentFileSelector.ids.file_dropdown(aio_id, 0), options=opts, value=v))
                             p = os.path.join(p, v)
                         return dds
                     else:
-                        return [dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, 0), options=opts)]
+                        return [dcc.Dropdown(id=ExperimentFileSelector.ids.file_dropdown(aio_id, 0), options=opts)]
                 elif not existing or not os.path.exists(os.path.join(host, user, *values)):  # Make first set of options
-                    return [dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, 0), options=opts)]
+                    return [dcc.Dropdown(id=ExperimentFileSelector.ids.file_dropdown(aio_id, 0), options=opts)]
             else:  # Don't know what options to show yet
                 return []
         # If there are existing dropdowns, decide if some need to be removed or added
@@ -159,7 +160,7 @@ class DatSelector(html.Div):
                 depth = len(existing)
                 if os.path.isdir(os.path.join(ddir, host, user, *values)):
                     opts = os.listdir(os.path.join(ddir, host, user, *values))
-                    existing.append(dcc.Dropdown(id=DatSelector.ids.file_dropdown(aio_id, depth), options=opts))
+                    existing.append(dcc.Dropdown(id=ExperimentFileSelector.ids.file_dropdown(aio_id, depth), options=opts))
                     return existing
         return dash.no_update
 
@@ -184,3 +185,15 @@ class DatSelector(html.Div):
     def persistent_selections(values):
         return values
 
+
+def get_dat(data_path):
+    dat = None
+    with global_lock:
+        if data_path and os.path.exists(data_path):
+            try:
+                dat = get_dat_from_exp_filepath(experiment_data_path=data_path, overwrite=False)
+            except Exception as e:
+                logger.warning(f'Failed to load dat at {data_path}. Raised {e}')
+        else:
+            logger.info(f'No file at {data_path}')
+        return dat

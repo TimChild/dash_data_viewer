@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
-from dash_data_viewer.new_dat_util import DatSelector
+from dash_data_viewer.new_dat_util import ExperimentFileSelector
 from dash_data_viewer.layout_util import label_component
 
 from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
@@ -81,7 +81,7 @@ class Test(html.Div):
 
 
 
-selector = DatSelector()
+selector = ExperimentFileSelector()
 
 @callback(
     Output('div-path', 'children'),

@@ -150,7 +150,7 @@ class CollapseAIO(html.Div):
 
 
 
-
+@deprecated(details='2022-07-05 -- Use improved dat selector which works with measurement-data layout insteqd')
 class DatnumPickerAIO(html.Div):
     """
     A group of buttons with custom text where one or multiple dats can be selected at a time.
