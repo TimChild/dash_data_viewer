@@ -23,7 +23,10 @@ if TYPE_CHECKING:
 
 NOT_SET = object()  # To be able to check if things still need to be set
 
+
 T = TypeVar('T', bound=Process)
+
+
 def load(location_dict: dict, process_class: Type[T]) -> T:
     dashd_id = location_dict.get('dashd_id', None)
     save_path = location_dict.get('save_path', None)
@@ -365,6 +368,7 @@ def standard_input_layout(process_name: str, user_inputs, sanitized_inputs,
     ])
     layout = c.CollapseAIO(content=layout, button_text=process_name, start_open=start_open)
     return layout
+
 
 def standard_output_layout(process_name: str, output_display, input_display = None,
                            start_open: bool = True) -> dbc.Card:

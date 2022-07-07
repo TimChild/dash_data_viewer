@@ -3,32 +3,28 @@ from __future__ import annotations
 import logging
 
 import dash
-import h5py
-from dash import html, dcc, callback, Input, Output, State
+from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
-from typing import TYPE_CHECKING, List, Union, Optional, Any, Tuple
-import uuid
+from typing import TYPE_CHECKING, List, Union
 import numpy as np
 import plotly.graph_objects as go
-from dataclasses import dataclass
-from functools import lru_cache
-import lmfit as lm
 
 import dash_data_viewer.components as c
 from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load, standard_input_layout, standard_output_layout
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.dash_hdf import DashHDF, HdfId
+from dat_analysis.analysis_tools.entropy import EntropySignalProcess
 
-from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
+from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, PlottableData, DataPlotter
 from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
-from dat_analysis.hdf_file_handler import GlobalLock, HDFFileHandler
-from dat_analysis.useful_functions import data_to_json, data_from_json, get_data_index, mean_data
+from dat_analysis.analysis_tools.square_wave import SeparateSquareProcess
+from dat_analysis.analysis_tools.transition import CenteredAveragingProcess
 from dat_analysis.plotting.plotly.dat_plotting import OneD
 
 from dash_data_viewer.new_dat_util import ExperimentFileSelector, get_dat
 
 if TYPE_CHECKING:
-    from dash.development.base_component import Component
+    pass
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -37,161 +33,7 @@ DELTA = '\u0394'
 SIGMA = '\u03c3'
 
 
-def get_transition_parts(part: Union[str, int]) -> Union[tuple, int]:
-    if isinstance(part, str):
-        part = part.lower()
-        if part == 'cold':
-            parts = (0, 2)
-        elif part == 'hot':
-            parts = (1, 3)
-        elif part == 'vp':
-            parts = (1,)
-        elif part == 'vm':
-            parts = (3,)
-        else:
-            raise ValueError(f'{part} not recognized. Should be in ["hot", "cold", "vp", "vm"]')
-    elif isinstance(part, int):
-        parts = (part,)
-    else:
-        raise ValueError(f'{part} not recognized. Should be in ["hot", "cold", "vp", "vm"]')
-    return parts
-
-
 # For now making the Processes here, but should be moved to dat_analysis package
-@dataclass
-class SeparateSquareProcess(Process):
-    def set_inputs(self, x: np.ndarray, i_sense: np.ndarray,
-                   measure_freq: float,
-                   samples_per_setpoint: int,
-
-                   setpoint_average_delay: Optional[float] = 0,
-                   ):
-        self.inputs = dict(
-            x=x,
-            i_sense=i_sense,
-            measure_freq=measure_freq,
-            samples_per_setpoint=samples_per_setpoint,
-            setpoint_average_delay=setpoint_average_delay,
-        )
-
-    def _preprocess(self):
-        i_sense = np.atleast_2d(self.inputs['i_sense'])
-
-        data_by_setpoint = i_sense.reshape((i_sense.shape[0], -1, 4, self.inputs['samples_per_setpoint']))
-
-        delay_index = round(self.inputs['setpoint_average_delay'] * self.inputs['measure_freq'])
-        if delay_index > self.inputs['samples_per_setpoint']:
-            setpoint_duration = self.inputs['samples_per_setpoint'] / self.inputs['measure_freq']
-            raise ValueError(f'setpoint_average_delay ({self.inputs["setpoint_average_delay"]} s) is longer than '
-                             f'setpoint duration ({setpoint_duration:.5f} s)')
-
-        setpoint_duration = self.inputs['samples_per_setpoint'] / self.inputs['measure_freq']
-
-        self._preprocessed = {
-            'data_by_setpoint': data_by_setpoint,
-            'delay_index': delay_index,
-            'setpoint_duration': setpoint_duration,
-        }
-
-    def process(self):
-        self._preprocess()
-        separated = np.mean(
-            self._preprocessed['data_by_setpoint'][:, :, :, self._preprocessed['delay_index']:], axis=-1)
-
-        x = self.inputs['x']
-        x = np.linspace(x[0], x[-1], separated.shape[-2])
-        self.outputs = {
-            'x': x,
-            'separated': separated,
-        }
-        return self.outputs
-
-
-    def get_input_plotter(self,
-                          xlabel: str = 'Sweepgate /mV', data_label: str = 'Current /nA',
-                          title: str = 'Data Averaged to Single Square Wave',
-                          start_x: Optional[float] = None, end_x: Optional[float] = None,  # To only average between
-                          y: Optional[np.ndarray] = None,
-                          start_y: Optional[float] = None, end_y: Optional[float] = None,  # To only average between
-                          ) -> DataPlotter:
-        self._preprocess()
-        by_setpoint = self._preprocessed['data_by_setpoint']
-        x = self.inputs['x']
-
-        if start_y or end_y:
-            if y is None:
-                raise ValueError(f'Need to pass in y_array to use start_y and/or end_y')
-            indexes = get_data_index(y, [start_y, end_y])
-            s_ = np.s_[indexes[0], indexes[1]]
-            by_setpoint = by_setpoint[s_]  # slice of rows, all_dac steps, 4 parts, all datapoints
-
-        if start_x or end_x:
-            indexes = get_data_index(x, [start_x, end_x])
-            s_ = np.s_[indexes[0], indexes[1]]
-            by_setpoint = by_setpoint[:, s_]  # All rows, slice of dac steps, 4 parts, all datapoints
-
-        averaged = np.nanmean(by_setpoint, axis=0)  # Average rows together
-        averaged = np.moveaxis(averaged, 1, 0)  # 4 parts, num steps, samples
-        averaged = np.nanmean(averaged, axis=-2)  # 4 parts, samples  (average steps together)
-        averaged = averaged.flatten()  # single 1D array with all 4 setpoints sequential
-
-        duration = self._preprocessed['setpoint_duration']
-        time_x = np.linspace(0, 4 * duration, averaged.shape[-1])
-
-        data = PlottableData(
-            data=averaged,
-            x=time_x,
-        )
-
-        plotter = DataPlotter(
-            data=data,
-            xlabel=xlabel,
-            data_label=data_label,
-            title=title,
-        )
-        return plotter
-
-    def get_output_plotter(self,
-                           y: Optional[np.ndarray] = None,
-                           xlabel: str = 'Sweepgate /mV', data_label: str = 'Current* /nA',
-                           ylabel: str = 'Repeats',
-                           part: Union[str, int] = 'cold',  # e.g. hot, cold, vp, vm, or 0, 1, 2, 3
-                           title: str = 'Separated into Square Wave Parts',
-                           x_spacing: float = 0,
-                           y_spacing: float = 0.3,
-                           ) -> DataPlotter:
-        if not self.processed:
-            self.process()
-        separated = self.outputs['separated']  # rows, dac steps, 4 parts
-        y = y if y is not None else np.arange(separated.shape[0])
-
-        data_part = self.data_part_out(part)
-
-        data = PlottableData(
-            data=data_part,
-            x=self.outputs['x'],
-            y=y,
-        )
-        plotter = DataPlotter(
-            data=data,
-            xlabel=xlabel,
-            ylabel=ylabel,
-            data_label=data_label,
-            title=title,
-            xspacing=x_spacing,
-            yspacing=y_spacing,
-        )
-        return plotter
-
-    def data_part_out(self,
-                      part: Union[str, int] = 'cold',  # e.g. hot, cold, vp, vm, or 0, 1, 2, 3
-                      ) -> np.ndarray:
-        if not self.processed:
-            self.process()
-        separated = self.outputs['separated']
-        part = get_transition_parts(part)  # Convert to Tuple (e.g. (1,3) for 'hot')
-        data_part = np.nanmean(np.take(separated, part, axis=2), axis=2)
-        return data_part
 
 
 class SeparateProcessInterface(ProcessInterface):
@@ -211,7 +53,7 @@ class SeparateProcessInterface(ProcessInterface):
         self.dashdata_id = NOT_SET
 
         # Data input IDs
-        self.data_input_id = NOT_SET  # Probably going to be taking data from HDF file
+        self.data_input_id = NOT_SET
 
         # Display IDs
         self.in_graph_id = ID('graph-in')  # Display input to this Process (plus useful info, e.g. initial fit)
@@ -222,6 +64,7 @@ class SeparateProcessInterface(ProcessInterface):
         # TODO: later, make it possible to manually set measure_freq etc (useful if dropping data in)
 
     def set_data_input_ids(self, previous_process_id=None):
+        logger.warning(f'Nothing happens here')
         # self.data_input_id = previous_process_id
         pass
 
@@ -280,14 +123,11 @@ class SeparateProcessInterface(ProcessInterface):
             Output(self.output_store_id, 'data'),
             Input(self.dashdata_id, 'data'),
             Input(self.sanitized_store_id, 'data'),
-            # Input(self.data_input_id, 'data'),  # Taking data directly from datHDF (First Process Only)
         )
-        def update_output_store(dashd_id, inputs: dict): #, data_path: dict):
+        def update_output_store(dashd_id, inputs: dict):
             if dashd_id and inputs and inputs.get('valid', False):
                 # Get data from previous processing
                 dashd = DashHDF(dashd_id, 'r')
-
-                # Get Initial data directly from Dat (First Process Only)
                 with dashd:
                     i_sense = dashd.get_data('i_sense', subgroup=None)
                     x = dashd.get_data('x', subgroup=None)
@@ -300,7 +140,7 @@ class SeparateProcessInterface(ProcessInterface):
                                    setpoint_average_delay=inputs['delay'],
                                    )
 
-                out = process.process()
+                process.process()
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
                 dashd.mode = 'r+'
@@ -364,59 +204,6 @@ class SeparateProcessInterface(ProcessInterface):
                     fig.add_trace(p.trace(data=data, x=x, name=label, mode='lines'))
                 return fig
             return go.Figure()
-
-
-@dataclass
-class EntropySignalProcess(Process):
-    """
-    Taking data which has been separated into the 4 parts of square heating wave and making entropy signal (2D)
-    by averaging together cold and hot parts, then subtracting to get entropy signal
-    """
-
-
-    def set_inputs(self, x: np.ndarray, separated_data: np.ndarray,
-                   ):
-        self.inputs = dict(
-            x=x,
-            separated_data=separated_data,
-        )
-
-    def process(self):
-        x = self.inputs['x']
-        data = self.inputs['separated_data']
-        data = np.atleast_3d(data)  # rows, steps, 4 heating setpoints
-        cold = np.nanmean(np.take(data, get_transition_parts('cold'), axis=2), axis=2)
-        hot = np.nanmean(np.take(data, get_transition_parts('hot'), axis=2), axis=2)
-        entropy = cold-hot
-        self.outputs = {
-            'x': x,  # Worth keeping x-axis even if not modified
-            'entropy': entropy
-        }
-        return self.outputs
-
-    def get_input_plotter(self) -> DataPlotter:
-        return DataPlotter(data=None, xlabel='Sweepgate /mV', ylabel='Repeats', data_label='Current /nA')
-
-    def get_output_plotter(self,
-                           y: Optional[np.ndarray] = None,
-                           xlabel: str = 'Sweepgate /mV', data_label: str = f'{DELTA} Current /nA',
-                           title: str = 'Entropy Signal',
-                           ) -> DataPlotter:
-        x = self.outputs['x']
-        data = self.outputs['entropy']
-
-        data = PlottableData(
-            data=data,
-            x=x,
-        )
-
-        plotter = DataPlotter(
-            data=data,
-            xlabel=xlabel,
-            data_label=data_label,
-            title=title,
-        )
-        return plotter
 
 
 class EntropySignalInterface(ProcessInterface):
@@ -546,118 +333,6 @@ class EntropySignalInterface(ProcessInterface):
 
                 return fig2d, fig_avg
             return go.Figure(), go.Figure()
-
-
-# @lru_cache(maxsize=500)
-def _TEMPORARY_fit_weak_transition(x: np.ndarray, data:np.ndarray, initial_params: lm.Parameters) -> FitInfo:
-    """Temporary cached function to speed up repeated fitting with same arguments
-    In future should implement saving fits to DatHDF or something more permanent than this
-    """
-    def weak_transition_func(x, mid, theta, amp, lin, const):
-        """Charge transition shape for weak coupling only"""
-        arg = (x - mid) / (2 * theta)
-        return -amp / 2 * np.tanh(arg) + lin * (x - mid) + const
-
-    fit = calculate_fit(x=x, data=data, params=initial_params, func=weak_transition_func, auto_bin=True, min_bins=1000)
-    return fit
-
-
-@dataclass
-class CenteredAveragingProcess(Process):
-    def set_inputs(self, x: np.ndarray, datas: Union[np.ndarray, List[np.ndarray]],
-                   center_by_fitting: bool = True,
-                   fit_start_x: Optional[float] = None,
-                   fit_end_x: Optional[float] = None,
-                   initial_params: Optional[lm.Parameters] = None,
-                   override_centers_for_averaging: Optional[Union[np.ndarray, List[float]]] = None,
-                   ):
-        """
-
-        Args:
-            x ():
-            datas (): 2D or list of 2D datas to average (assumes first data is the one to use for fitting to)
-            center_by_fitting (): True to use a simple fit to find centres first, False just blind averages (unless
-                override_centers_for_averaging is set)
-            fit_start_x (): Optionally set a lower x-limit for fitting
-            fit_end_x (): Optionally set an upper x-limit for fitting
-            initial_params (): Optionally provide some initial paramters for fitting
-            override_centers_for_averaging (): Optionally provide a list of center values (will override everything else)
-
-        Returns:
-
-        """
-        self.inputs = dict(
-            x = x,
-            datas = datas,
-            center_by_fitting = center_by_fitting,
-            fit_start_x = fit_start_x,
-            fit_end_x = fit_end_x,
-            initial_params = initial_params,
-            override_centers_for_averaging = override_centers_for_averaging,
-        )
-
-    def _get_centers(self):
-        x = self.inputs['x']
-        center_by_fitting = self.inputs['center_by_fitting']
-        fit_start_x = self.inputs['fit_start_x']
-        fit_end_x = self.inputs['fit_end_x']
-        initial_params = self.inputs['initial_params']
-        override_centers_for_averaging = self.inputs['override_centers_for_averaging']
-
-        datas = self.inputs['datas']
-        data = datas[0] if isinstance(datas, list) else datas
-
-        if override_centers_for_averaging is not None:
-            centers = override_centers_for_averaging
-        elif center_by_fitting is False:
-            centers = [0]*data.shape[0]
-        else:
-            indexes = get_data_index(x, [fit_start_x, fit_end_x])
-            s_ = np.s_[indexes[0]:indexes[1]]
-            x = x[s_]
-            data = data[:, s_]
-            if not initial_params:
-                initial_params = lm.Parameters()
-                initial_params.add_many(
-                    # param, value, vary, min, max
-                    lm.Parameter('mid', np.mean(x), True, np.min(x), np.max(x)),
-                    lm.Parameter('amp', np.nanmax(data) - np.nanmin(data), True, 0, 2),
-                    lm.Parameter('const', np.mean(data), True),
-                    lm.Parameter('lin', 0, True, 0, 0.01),
-                    lm.Parameter('theta', 10, True, 0, 100),
-                )
-            center_fits = [_TEMPORARY_fit_weak_transition(x, d, initial_params) for d in data]
-            centers = [fit.best_values.mid for fit in center_fits]
-        return centers
-
-    def process(self):
-        x = self.inputs['x']
-        datas = self.inputs['datas']
-        centers = self._get_centers()
-
-        datas_is_list = isinstance(datas, list)
-        if not datas_is_list:
-            datas = [datas]
-
-        averaged, new_x, errors = [], [], []
-        for data in datas:
-            avg, x, errs = mean_data(x, data, centers, return_x=True, return_std=True, nan_policy='omit')
-            averaged.append(avg)
-            new_x.append(x)
-            errors.append(errs)
-
-        new_x = new_x[0]  # all the same anyway
-        if not datas_is_list:
-            averaged = averaged[0]
-            errors = errors[0]
-
-        self.outputs = {
-            'x': new_x,  # Worth keeping x-axis even if not modified
-            'averaged': averaged,
-            'std_errs': errors,
-            'centers': centers,
-        }
-        return self.outputs
 
 
 class CenteredEntropyAveragingInterface(ProcessInterface):
@@ -888,12 +563,12 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
 
 
 # Actually make the page
-
 dat_selector = ExperimentFileSelector()
 
 # # Store to hold the DashHDF ID where any external info (i.e. from Dat or File) is stored
 # # This is to avoid relying on any specific original source of data but keep data local and only send pointer to store
 external_data_path_store = dcc.Store(id='entropy-store-from-external')
+
 
 @callback(
     Output(external_data_path_store.id, 'data'),
@@ -911,12 +586,13 @@ def get_external_data_and_info(dat_filepath):
 
     with dashd:
         # Any Data that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
-        dashd.save_data(dat.Data.i_sense, 'i_sense', subgroup=subgroup)
+        dashd.save_data(dat.Data.get_data('standard/i_sense', None), 'i_sense', subgroup=subgroup)
         dashd.save_data(dat.Data.x, 'x', subgroup=subgroup)
 
         # Any Info that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
         dashd.save_info(dat.Logs.measure_freq, 'measure_freq', subgroup=subgroup)
-        dashd.save_info(dat.AWG.info.wave_len/4, 'samples_per_setpoint', subgroup=subgroup)
+        fd_logs = dat.Logs.get_fastdac(1)
+        dashd.save_info(fd_logs.AWG.info.wave_len/4, 'samples_per_setpoint', subgroup=subgroup)  # fd_logs.AWG['info']['wave_len']/4
 
     return dashd.id
 

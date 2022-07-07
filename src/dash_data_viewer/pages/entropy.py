@@ -1091,7 +1091,9 @@ def get_transition_fit_from_data(data: Data1D) -> FitInfo:
     Returns:
         FitInfo result
     """
-    from dat_analysis.dat_object.attributes.transition import i_sense, get_param_estimates, _append_param_estimate_1d
+    from dat_analysis.analysis_tools.transition import _append_param_estimate_1d
+    from dat_analysis.analysis_tools.transition import get_param_estimates
+    from dat_analysis.analysis_tools.transition import i_sense
 
     params = get_param_estimates(data.x, data.data)
     _append_param_estimate_1d(params, pars_to_add=None)  # Will be useful for fitting other than i_sense
