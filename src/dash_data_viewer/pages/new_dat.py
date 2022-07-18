@@ -221,8 +221,8 @@ main = dbc.Container([
 
 layout = dbc.Container([
     dbc.Row([
-        dbc.Col([sidebar], width=4),
-        dbc.Col([main], width=8)
+        dbc.Col([sidebar], width=6, lg=4),
+        dbc.Col([main], width=6, lg=8)
     ])
 ], fluid=True)
 
