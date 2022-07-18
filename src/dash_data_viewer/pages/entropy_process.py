@@ -1,6 +1,7 @@
 import logging
 
 import dash
+import os
 from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
 from typing import TYPE_CHECKING, List, Union
@@ -578,22 +579,30 @@ def get_external_data_and_info(dat_filepath):
     still work
     Note: This is the ONLY place that external data should load from.
     """
-    dat = get_dat(dat_filepath)
-    hdf_id = HdfId(page='entropy-process', additional_classifier=dat_filepath['experiment_name'], number=dat_filepath['datnum'])
-    dashd = DashHDF(hdf_id, mode='r+')  # TODO: Maybe want to use 'w' mode to overwrite previous?
-    subgroup = None  # In case I later want to save this data in e.g. a "main" group
 
-    with dashd:
-        # Any Data that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
-        dashd.save_data(dat.Data.get_data('standard/i_sense', None), 'i_sense', subgroup=subgroup)
-        dashd.save_data(dat.Data.x, 'x', subgroup=subgroup)
+    if dat_filepath and os.path.exists(dat_filepath) and os.path.isfile(dat_filepath):
+        data_path = dat_filepath
+    else:
+        data_path = None
 
-        # Any Info that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
-        dashd.save_info(dat.Logs.measure_freq, 'measure_freq', subgroup=subgroup)
-        fd_logs = dat.Logs.get_fastdac(1)
-        dashd.save_info(fd_logs.AWG.info.wave_len/4, 'samples_per_setpoint', subgroup=subgroup)  # fd_logs.AWG['info']['wave_len']/4
+    if data_path:
+        dat = get_dat(data_path)
+        hdf_id = HdfId(page='entropy-process', number=dat.datnum)
+        dashd = DashHDF(hdf_id, mode='r+')  # TODO: Maybe want to use 'w' mode to overwrite previous?
+        subgroup = None  # In case I later want to save this data in e.g. a "main" group
 
-    return dashd.id
+        with dashd:
+            # Any Data that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
+            dashd.save_data(dat.Data.get_data('standard/i_sense', None), 'i_sense', subgroup=subgroup)
+            dashd.save_data(dat.Data.x, 'x', subgroup=subgroup)
+
+            # Any Info that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
+            dashd.save_info(dat.Logs.measure_freq, 'measure_freq', subgroup=subgroup)
+            fd_logs = dat.Logs.get_fastdac(1)
+            dashd.save_info(fd_logs.AWG['waveLen']/4, 'samples_per_setpoint', subgroup=subgroup)  # fd_logs.AWG['info']['wave_len']/4
+        return dashd.id
+    else:
+        return None
 
 # dat_picker = c.DatnumPickerAIO(aio_id='entropy-process', allow_multiple=False)
 stores = [external_data_path_store]
@@ -669,12 +678,12 @@ layout = html.Div([
             standard_input_layout('Make Entropy Signal', signal_inputs, signal_sanitized),
             standard_input_layout('Centering and Averaging', centering_inputs, centering_sanitized),
         ],
-            width=3),
+            width=6, md=5, lg=4),
         dbc.Col([
             standard_output_layout('Separate Heating Parts', separate_output_display, separate_input_display),
             standard_output_layout('Entropy Signal', signal_output_display, signal_input_display),
             standard_output_layout('Centering and Averaging', centering_output_display, centering_input_display),
-        ], width=9),
+        ], width=6, md=7, lg=8),
     ])
 ]
 )
@@ -684,7 +693,7 @@ if __name__ == '__main__':
     app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
     # app.layout = layout()
     app.layout = layout
-    app.run_server(debug=True, port=8051)
+    app.run_server(debug=True, port=8051, dev_tools_hot_reload=False, use_reloader=False)
 else:
     dash.register_page(__name__)
     pass
