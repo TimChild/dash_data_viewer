@@ -1,4 +1,4 @@
-from __future__ import annotations
+# from __future__ import annotations
 from typing import TYPE_CHECKING
 from dash import dcc, html
 import dash_bootstrap_components as dbc
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from dat_analysis.dat_object.attributes.square_entropy import Output
     from dat_analysis.analysis_tools.general_fitting import FitInfo
     from dat_analysis.dat_object.attributes.entropy import IntegrationInfo
+
 
 @deprecated(deprecated_in='20220601', details='Going down a different route with dash now')
 class EntropyReport:

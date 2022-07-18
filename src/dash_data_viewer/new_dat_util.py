@@ -1,4 +1,4 @@
-from __future__ import annotations
+# from __future__ import annotations
 
 import uuid
 from dash import html, dcc, MATCH, ALL, ALLSMALLER, ctx
@@ -131,14 +131,14 @@ class ExperimentFileSelector(html.Div):
         # If host or user is trigger, or no experiment dropdowns already
         if any([v == ctx.triggered_id.get('key', None) if ctx.triggered_id else False for v in ['host', 'user']]) or not existing:
             if host and user:
-                opts = os.listdir(os.path.join(ddir, host, user))
+                opts = sorted(os.listdir(os.path.join(ddir, host, user)))
                 if not existing and stored_values:  # Page reload
                     stored_values = [s if s else '' for s in stored_values]
                     if os.path.exists(os.path.join(ddir, host, user, *stored_values)):
                         dds = []
                         p = os.path.join(ddir, host, user)
                         for v in stored_values:
-                            opts = os.listdir(p)
+                            opts = sorted(os.listdir(p))
                             dds.append(dcc.Dropdown(id=ExperimentFileSelector.ids.file_dropdown(aio_id, 0), options=opts, value=v))
                             p = os.path.join(p, v)
                         return dds
@@ -159,7 +159,7 @@ class ExperimentFileSelector(html.Div):
             if last_val:  # If last dropdown is filled, add another (unless it isn't a directory)
                 depth = len(existing)
                 if os.path.isdir(os.path.join(ddir, host, user, *values)):
-                    opts = os.listdir(os.path.join(ddir, host, user, *values))
+                    opts = sorted(os.listdir(os.path.join(ddir, host, user, *values)))
                     existing.append(dcc.Dropdown(id=ExperimentFileSelector.ids.file_dropdown(aio_id, depth), options=opts))
                     return existing
         return dash.no_update
@@ -193,7 +193,7 @@ def get_dat(data_path):
             try:
                 dat = get_dat_from_exp_filepath(experiment_data_path=data_path, overwrite=False)
             except Exception as e:
-                logger.warning(f'Failed to load dat at {data_path}. Raised {e}')
+                logger.warning(f'Failed to load dat at {data_path}. \nRaised: \n{e}')
         else:
             logger.info(f'No file at {data_path}')
         return dat

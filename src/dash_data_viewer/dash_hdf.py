@@ -4,7 +4,7 @@ an ID of the Dash HDF, and maybe what was last updated in it?
 This will save sending data back and forth to client, and I can interact with HDF files in a threadsafe/process safe way
 with my HDFFileHandler (i.e. single process access, multi-thread if reading, single thread if writing)
 """
-from __future__ import annotations
+# from __future__ import annotations
 import h5py
 import numpy as np
 from typing import Optional, List, Dict, Any, Union
@@ -120,7 +120,7 @@ class DashHDF:
         self._check_file_open('r')
         return self._file.get(name, default=default, getclass=getclass, getlink=getlink)
 
-    def __enter__(self) -> DashHDF:
+    def __enter__(self) -> Any:
         """For context manager"""
         allowed_modes = ['r', 'r+', 'w']
         if self.mode not in allowed_modes:
@@ -158,10 +158,11 @@ class DashHDF:
 
     def save_data(self, data: Union[np.ndarray, h5py.Dataset], name: str, subgroup: Optional[str] = None):
         """For saving arrays or dataset to HDF"""
-        self._check_file_open('r+')
-        subgroup = subgroup if subgroup else '/'
-        group = self._file.require_group(subgroup)
-        set_data(group, name, data)
+        if isinstance(data, np.ndarray):
+            self._check_file_open('r+')
+            subgroup = subgroup if subgroup else '/'
+            group = self._file.require_group(subgroup)
+            set_data(group, name, data)
 
     def _get_dataset(self, name, subgroup) -> h5py.Dataset:
         self._check_file_open('r')

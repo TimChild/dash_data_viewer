@@ -1,4 +1,4 @@
-from __future__ import annotations
+# from __future__ import annotations
 import dash
 import h5py
 from dash import html, dcc, callback, Input, Output
@@ -13,7 +13,6 @@ from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET
 from dash_data_viewer.layout_util import label_component
 
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, Process, PlottableData, DataPlotter
-from dat_analysis import get_dat
 from dat_analysis.hdf_file_handler import GlobalLock
 from dat_analysis.useful_functions import data_to_json, data_from_json
 
@@ -75,7 +74,7 @@ class TestProcess(Process):
                 )
 
     @classmethod
-    def load_progress(cls, filepath, **kwargs) -> TestProcess:  #group: h5py.Group) -> Process:
+    def load_progress(cls, filepath, **kwargs) -> Any:  #group: h5py.Group) -> Process:
         with LOCK:
             data = data_from_json(filepath)
         inst = cls()
@@ -120,7 +119,7 @@ class Test2Process(Process):
             )
 
     @classmethod
-    def load_progress(cls, filepath, **kwargs) -> Test2Process:  #group: h5py.Group) -> Process:
+    def load_progress(cls, filepath, **kwargs) -> Any:  #group: h5py.Group) -> Process:
         with LOCK:
             data = data_from_json(filepath)
         inst = cls()

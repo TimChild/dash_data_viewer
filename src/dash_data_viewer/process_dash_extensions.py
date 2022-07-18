@@ -1,7 +1,7 @@
 """
 Provide the dash functionality to dat_analysis Process
 """
-from __future__ import annotations
+# from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, List, Union, Type, TypeVar, Optional
 from dash import html, dcc, callback, Output, Input
