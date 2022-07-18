@@ -165,6 +165,7 @@ def update_logs_area(data_path):
 
 all_graphs = html.Div(id='div-all-graphs')
 
+
 @callback(
     Output('div-all-graphs', 'children'),
     Input('store-data-path', 'data'),

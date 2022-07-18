@@ -9,9 +9,10 @@ def func(args)
 Note: Need to run cache.init_app(app.server) at some point if not running from multipage
 """
 from flask_caching import Cache
+import os
 
 
 cache = Cache(config={
     'CACHE_TYPE': 'filesystem',
-    'CACHE_DIR': 'cache-directory'
+    'CACHE_DIR': f'{os.path.join(os.path.dirname(__file__), "cache-directory")}'
 })

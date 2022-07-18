@@ -16,7 +16,7 @@ setup(
         'dash>=2.0',
         'plotly',
         'pandas',
-        'dash-extensions',
+        'dash-extensions<=0.0.65',
         'dash-labs',
         'dash-bootstrap-components',
         'dacite',
