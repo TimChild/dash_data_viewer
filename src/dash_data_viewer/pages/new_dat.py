@@ -1,4 +1,3 @@
-from __future__ import annotations
 import dash
 import json
 import os
@@ -15,8 +14,6 @@ from dash_data_viewer.new_dat_util import get_dat, ExperimentFileSelector
 from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
 from dat_analysis.hdf_file_handler import GlobalLock
 import tempfile
-
-
 
 import logging
 logger = logging.getLogger(__name__)

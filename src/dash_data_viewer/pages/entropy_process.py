@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 
 import dash
@@ -13,18 +11,19 @@ import dash_data_viewer.components as c
 from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load, standard_input_layout, standard_output_layout
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.dash_hdf import DashHDF, HdfId
-from dat_analysis.analysis_tools.entropy import EntropySignalProcess
+from dash_data_viewer.new_dat_util import ExperimentFileSelector, get_dat
 
+from dat_analysis.analysis_tools.entropy import EntropySignalProcess
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, PlottableData, DataPlotter
 from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
 from dat_analysis.analysis_tools.square_wave import SeparateSquareProcess
 from dat_analysis.analysis_tools.transition import CenteredAveragingProcess
 from dat_analysis.plotting.plotly.dat_plotting import OneD
 
-from dash_data_viewer.new_dat_util import ExperimentFileSelector, get_dat
 
 if TYPE_CHECKING:
     pass
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

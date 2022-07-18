@@ -1,4 +1,3 @@
-from __future__ import annotations
 import dash
 from dash import MATCH, ALL, ALLSMALLER
 import json
