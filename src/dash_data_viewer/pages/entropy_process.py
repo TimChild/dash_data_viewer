@@ -168,7 +168,7 @@ class SeparateProcessInterface(ProcessInterface):
 
     def callback_input_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.in_graph_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_input_graph(out_store):
@@ -189,7 +189,7 @@ class SeparateProcessInterface(ProcessInterface):
 
     def callback_output_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.out_graph_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.out_graph_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_output_graph(out_store):
@@ -300,7 +300,7 @@ class EntropySignalInterface(ProcessInterface):
 
     def callback_input_display(self):
         # @callback(
-        #     Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+        #     Output(c.GraphAIO.ids.update_figure_store(self.in_graph_id), 'data'),
         #     Input(self.output_store_id, 'data'),
         # )
         # def update_input_graph(out_store):
@@ -313,8 +313,8 @@ class EntropySignalInterface(ProcessInterface):
 
     def callback_output_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.out_graph2d_id), 'figure'),
-            Output(c.GraphAIO.ids.graph(self.out_graph_avg_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.out_graph2d_id), 'data'),
+            Output(c.GraphAIO.ids.update_figure_store(self.out_graph_avg_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_output_graph(out_store):
@@ -481,7 +481,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
 
     def callback_input_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.in_graph_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_input_graph(out_store):
@@ -501,7 +501,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
 
     def callback_output_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.out_graph_isense_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.out_graph_isense_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_i_sense_graph(out_store):
@@ -532,7 +532,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
             return go.Figure()
 
         @callback(
-            Output(c.GraphAIO.ids.graph(self.out_graph_entropy_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.out_graph_entropy_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_entropy_graph(out_store):

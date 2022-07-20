@@ -1,5 +1,6 @@
-from dash import Input, Output, State, dcc, html, callback, MATCH, ALL, ALLSMALLER, dash
+from dash import Input, Output, State, dcc, html, callback, MATCH, ALL, ALLSMALLER, dash, ctx
 from dataclasses import dataclass, asdict
+import numpy as np
 import pandas as pd
 from dacite import from_dict
 from dash_extensions.snippets import get_triggered
@@ -19,10 +20,15 @@ from dat_analysis import useful_functions as u
 
 from .layout_util import vertical_label
 
-
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
 os.makedirs(tempdir, exist_ok=True)
 global_lock = filelock.FileLock(os.path.join(tempdir, 'components_lock.lock'))
+
+
+def blank_figure() -> go.Figure:
+    fig = go.Figure()
+    fig.add_annotation(text='Blank Figure', xref='paper', yref='paper', x=0.5, y=0.5, showarrow=False)
+    return fig
 
 
 class TemplateAIO(html.Div):
@@ -147,7 +153,6 @@ class CollapseAIO(html.Div):
         if clicks:
             return not is_open
         return is_open
-
 
 
 @deprecated(details='2022-07-05 -- Use improved dat selector which works with measurement-data layout insteqd')
@@ -360,7 +365,6 @@ class MultiButtonAIO(html.Div):
         else:
             return from_dict(cls.Info, d)
 
-
     @dataclass
     class Config:
         allow_multiple: bool
@@ -513,6 +517,18 @@ class GraphAIO(html.Div):
                 'aio_id': aio_id,
             }
 
+        @staticmethod
+        def update_figure_store(aio_id):
+            """Updating this store with a fig.to_dict() will be passed on to the graph figure without requiring a
+            second callback
+            I.e. The callback to update the actual figure is defined in the AIO, so can't be duplicated elsewhere
+            """
+            return {
+                'component': 'GraphAIO',
+                'subcomponent': f'update_figure',
+                'aio_id': aio_id,
+            }
+
     # Make the ids class a public class
     ids = ids
 
@@ -522,6 +538,8 @@ class GraphAIO(html.Div):
         if aio_id is None:
             aio_id = str(uuid.uuid4())
 
+        self.update_figure_store_id = self.ids.update_figure_store(aio_id)
+        update_fig_store = dcc.Store(id=self.update_figure_store_id, data=figure)
         self.graph_id = self.ids.graph(aio_id)
         fig = dcc.Graph(id=self.graph_id, figure=figure, **graph_kwargs)
 
@@ -534,12 +552,17 @@ class GraphAIO(html.Div):
             Input_(id=self.ids.input(aio_id, 'downloadName')),
             dbc.Label(children='Download'),
             download_buttons,
+            html.Hr(),
+            vertical_label('Waterfall', dbc.RadioButton(id=self.ids.generic(aio_id, 'tog-waterfall'))),
         ])
 
-        options_button = dbc.Button(id=self.ids.button(aio_id, 'optsPopover'), children='Options', size='sm', color='light')
-        options_popover = dbc.Popover(children=dbc.PopoverBody(options_layout), target=options_button.id, trigger='click')
+        options_button = dbc.Button(id=self.ids.button(aio_id, 'optsPopover'), children='Options', size='sm',
+                                    color='light')
+        options_popover = dbc.Popover(children=dbc.PopoverBody(options_layout), target=options_button.id,
+                                      trigger='click')
 
         full_layout = html.Div([
+            update_fig_store,
             dcc.Download(id=self.ids.generic(aio_id, 'download')),
             options_popover,
             fig,
@@ -547,6 +570,26 @@ class GraphAIO(html.Div):
         ], style={'position': 'relative'})
 
         super().__init__(children=full_layout)  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.graph(MATCH), 'figure'),
+        Input(ids.update_figure_store(MATCH), 'data'),
+        Input(ids.generic(MATCH, 'tog-waterfall'), 'value'),
+        State(ids.graph(MATCH), 'figure'),
+    )
+    def update_figure(update_fig, waterfall, existing_fig):
+        fig = go.Figure(existing_fig)
+        if ctx.triggered:
+            if ctx.triggered_id.get('subcomponent', None) == 'update_figure':
+                fig = update_fig
+
+        fig = fig_waterfall(fig, waterfall)
+
+        if fig:
+            return fig
+        else:
+            return blank_figure()
 
     @staticmethod
     @callback(
@@ -586,44 +629,36 @@ class GraphAIO(html.Div):
                     return dcc.send_file(filepath, f'{download_name}.json', type='application/json')
         return dash.no_update
 
-    # @staticmethod
-    # @callback(
-    #     # Output(ids.generic(MATCH, 'download'), 'data'),
-    #     Input(ids.button(MATCH, ALL), 'n_clicks'),
-    #     # State(selected dat?),
-    #     # State(save name?),
-    #     # State(ids.input(MATCH, 'downloadName'), 'figure'),
-    #     State(ids.graph(MATCH), 'figure'),
-    # )
-    # def save_to_dat(selected, download_name, figure):
-    #     # TODO: Need to change all of this to save to dat instead
-    #     triggered = get_triggered()
-    #     if triggered.id and triggered.id['subcomponent'] == 'button' and figure:
-    #         selected = triggered.id['key'].lower()
-    #         if not download_name:
-    #             download_name = 'fig'
-    #         download_name = download_name.split('.')[0]  # To remove any extensions in name
-    #         fig = go.Figure(figure)
-    #         if selected == 'html':
-    #             return dict(content=fig.to_html(), filename=f'{download_name}.html', type='text/html')
-    #         elif selected == 'jpeg':
-    #             filepath = os.path.join(tempdir, 'jpgdownload.jpg')
-    #             with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
-    #                 time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
-    #                 fig.write_image(filepath, format='jpg')
-    #                 return dcc.send_file(filepath, f'{download_name}.svg', type='image/jpg')
-# bytes_ = False
-# if file_type == 'html':
-#     data = fig.to_html()
-#     mtype = 'text/html'
-# elif file_type == 'jpg':
-#     fig.write_image('temp/dash_temp.jpg', format='jpg')
-#     return send_file('temp/dash_temp.jpg', filename=fname, mime_type='image/jpg')
-# elif file_type == 'svg':
-#     fig.write_image('temp/dash_temp.svg', format='svg')
-#     return send_file('temp/dash_temp.svg', fname, 'image/svg+xml')
 
-#         save_name = dat.Figures._generate_fig_name(fig, overwrite=False)
-#
-#
-# dat.Figures.save_fig(fig, save_name, sub_group_name='Dash', overwrite=True)
+def fig_waterfall(fig: go.Figure, waterfall_state: bool):
+    if fig:
+        fig = go.Figure(fig)
+    if fig and fig.data:
+        if len(fig.data) == 1 and isinstance(fig.data[0], go.Heatmap) and waterfall_state:  # Convert from heatmap to waterfall
+            hm = fig.data[0]
+            fig.data = ()
+            x = hm.x
+            for r, y in zip(hm.z, hm.y):
+                fig.add_trace(go.Scatter(x=x, y=r, name=y))
+            fig.update_layout(legend=dict(title=fig.layout.yaxis.title.text), yaxis_title=fig.layout.coloraxis.colorbar.title.text)
+        elif len(fig.data) > 1 and all([isinstance(d, go.Scatter) for d in fig.data]) and not waterfall_state:  # Convert from waterfall to heatmap
+            rows = fig.data
+            fig.data = ()
+            x = rows[0].x
+            y = []
+            for i, r in enumerate(rows):
+                try:
+                    name = r.name
+                    v = float(name)
+                except Exception as e:
+                    v = i
+                y.append(v)
+            z = np.array([r.y for r in rows])
+            fig.add_trace(go.Heatmap(x=x, y=y, z=z))
+            fig.update_layout(yaxis_title=fig.layout.legend.title.text, legend=None, coloraxis=dict(colorbar=dict(title=fig.layout.yaxis.title.text)))
+        else:
+            pass
+    return fig
+
+
+

@@ -337,7 +337,7 @@ class TemplateProcessInterface(ProcessInterface):
 
     def callback_input_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.in_graph_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.in_graph_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_input_graph(out_store):
@@ -349,7 +349,7 @@ class TemplateProcessInterface(ProcessInterface):
 
     def callback_output_display(self):
         @callback(
-            Output(c.GraphAIO.ids.graph(self.out_graph_id), 'figure'),
+            Output(c.GraphAIO.ids.update_figure_store(self.out_graph_id), 'data'),
             Input(self.output_store_id, 'data'),
         )
         def update_output_graph(out_store):
