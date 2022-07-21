@@ -193,10 +193,12 @@ def generate_all_data_graphs(dat_path, avoid_selected):
                     )
                     fig.update_xaxes(title_text=dat.Logs.x_label)
                     if data.ndim == 1:
+                        data, x = U.resample_data(data, x=x, max_num_pnts=500, resample_method='bin')
                         fig.add_trace(go.Scatter(x=x, y=data))
                         figs.append(fig)
                     elif data.ndim == 2:
                         y = y if y is not None else np.linspace(0, data.shape[-2], data.shape[-2])
+                        data, x, y = U.resample_data(data, x=x, y=y, max_num_pnts=500, resample_method='bin')
                         fig.add_trace(go.Heatmap(x=x, y=y, z=data))
                         fig.update_yaxes(title_text=dat.Logs.y_label)
                         figs.append(fig)
