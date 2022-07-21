@@ -32,7 +32,7 @@ class HdfId:
 
     def __post_init__(self, page, additional_classifier, number):
         if not self.uid:
-            if number:
+            if number is not None:
                 uid = ''
                 if page:
                     uid += f'{page}-'

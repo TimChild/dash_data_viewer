@@ -1,3 +1,4 @@
+import dash
 from dash import Input, Output, State, dcc, html, callback, MATCH, ALL, ALLSMALLER, dash, ctx
 from dataclasses import dataclass, asdict
 import numpy as np
@@ -16,19 +17,58 @@ import os
 import time
 from deprecation import deprecated
 
-from dat_analysis import useful_functions as u
+from dat_analysis import useful_functions as u, get_local_config
+from layout_util import label_component, vertical_label
 
-from .layout_util import vertical_label
 
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
 os.makedirs(tempdir, exist_ok=True)
 global_lock = filelock.FileLock(os.path.join(tempdir, 'components_lock.lock'))
+
+config = get_local_config()
+ddir = config['loading']['path_to_measurement_data']
 
 
 def blank_figure() -> go.Figure:
     fig = go.Figure()
     fig.add_annotation(text='Blank Figure', xref='paper', yref='paper', x=0.5, y=0.5, showarrow=False)
     return fig
+
+
+def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text', max=None, maxlength=None, min=None,
+           minlength=None, step=None, size='md', valid=False, required=False, placeholder='', name='', debounce=True,
+           persistence=False, persistence_type='session', **kwargs) -> dbc.Input:
+    """
+    Wrapper around dbc.Input with some different default values
+
+    Args:
+        id (): ID in page
+        type (): The type of control to render. (a value equal to: "text", 'number', 'password', 'email', 'range', 'search', 'tel', 'url', 'hidden'; optional):
+        value (): initial value of input
+        autocomplete (): Enable browser autocomplete
+        inputmode (): (a value equal to: "verbatim", "latin", "latin-name", "latin-prose", "full-width-latin", "kana", "katakana", "numeric", "tel", "email", "url"; optional): Provides a hint to the browser as to the type of data that might be entered by the user while editing the element or its contents.
+        max (): Max value (or date) allowed
+        maxlength (): Max string length allowed
+        min (): Min value (or date) allowed
+        minlength (): Min string length allowed
+        step (): Step size for value type
+        size (): 'sm', 'md', or 'lg'. Defaults to 'md'
+        valid (): Apply valid style (adds a tick)
+        required (): Entry required for form submission
+        placeholder (): Placeholder text (not an actual value)
+        name (): Name of component submitted with form data
+        debounce (): Update only on focus loss or enter key
+        persistence (): Whether the value should persist
+        persistence_type (): (a value equal to: 'local', 'session', 'memory'; default 'local'). memory: only kept in memory, reset on page refresh. local: window.localStorage, data is kept after the browser quit (Note: Shared across multiple browser tabs/windows). session: window.sessionStorage, data is cleared once the browser quit.
+        **kwargs (): Any other kwargs accepted by dbc.Input
+
+    Returns:
+
+    """
+    return dbc.Input(id=id, type=type, value=value, autocomplete=autocomplete, inputmode=inputmode, max=max,
+                     maxlength=maxlength, min=min, minlength=minlength, step=step, size=size, valid=valid,
+                     required=required, placeholder=placeholder, name=name, debounce=debounce, persistence=persistence,
+                     persistence_type=persistence_type, **kwargs)
 
 
 class TemplateAIO(html.Div):
@@ -69,42 +109,6 @@ class TemplateAIO(html.Div):
     # )
     # def function():
     #     pass
-
-
-def Input_(id=None, type='text', value=None, autocomplete=False, inputmode='text', max=None, maxlength=None, min=None,
-           minlength=None, step=None, size='md', valid=False, required=False, placeholder='', name='', debounce=True,
-           persistence=False, persistence_type='session', **kwargs) -> dbc.Input:
-    """
-    Wrapper around dbc.Input with some different default values
-
-    Args:
-        id (): ID in page
-        type (): The type of control to render. (a value equal to: "text", 'number', 'password', 'email', 'range', 'search', 'tel', 'url', 'hidden'; optional):
-        value (): initial value of input
-        autocomplete (): Enable browser autocomplete
-        inputmode (): (a value equal to: "verbatim", "latin", "latin-name", "latin-prose", "full-width-latin", "kana", "katakana", "numeric", "tel", "email", "url"; optional): Provides a hint to the browser as to the type of data that might be entered by the user while editing the element or its contents.
-        max (): Max value (or date) allowed
-        maxlength (): Max string length allowed
-        min (): Min value (or date) allowed
-        minlength (): Min string length allowed
-        step (): Step size for value type
-        size (): 'sm', 'md', or 'lg'. Defaults to 'md'
-        valid (): Apply valid style (adds a tick)
-        required (): Entry required for form submission
-        placeholder (): Placeholder text (not an actual value)
-        name (): Name of component submitted with form data
-        debounce (): Update only on focus loss or enter key
-        persistence (): Whether the value should persist
-        persistence_type (): (a value equal to: 'local', 'session', 'memory'; default 'local'). memory: only kept in memory, reset on page refresh. local: window.localStorage, data is kept after the browser quit (Note: Shared across multiple browser tabs/windows). session: window.sessionStorage, data is cleared once the browser quit.
-        **kwargs (): Any other kwargs accepted by dbc.Input
-
-    Returns:
-
-    """
-    return dbc.Input(id=id, type=type, value=value, autocomplete=autocomplete, inputmode=inputmode, max=max,
-                     maxlength=maxlength, min=min, minlength=minlength, step=step, size=size, valid=valid,
-                     required=required, placeholder=placeholder, name=name, debounce=debounce, persistence=persistence,
-                     persistence_type=persistence_type, **kwargs)
 
 
 class CollapseAIO(html.Div):
@@ -153,6 +157,219 @@ class CollapseAIO(html.Div):
         if clicks:
             return not is_open
         return is_open
+
+
+class ExperimentFileSelectorAIO(html.Div):
+    """
+    Select a dat from measurement directory with dropdown menus for each level of folder
+    heirarchy
+
+    # Requires
+    No required components
+    Does require dat_analysis local_config to be set up with a measurement directory and save directory
+
+    # Provides
+    Full path to selected Dat or other experiment file or folder
+
+    """
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def generic(aio_id, key: str):
+            return {
+                'component': 'FileSelector',
+                'subcomponent': f'generic',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def file_dropdown(aio_id, level: int):
+            return {
+                'component': 'FileSelector',
+                'subcomponent': 'FileDropdown',
+                'level': level,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def store(aio_id):
+            return {
+                'component': 'FileSelector',
+                'subcomponent': 'Store',
+                'aio_id': aio_id,
+            }
+
+    # Make the ids class a public class
+    ids = ids
+
+    def __init__(self, aio_id=None):
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+        self.store_id = self.ids.store(aio_id)
+
+        layout = self.layout(aio_id)
+        super().__init__(children=[layout])  # html.Div contains layout
+
+    def layout(self, aio_id):
+        host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
+        layout = html.Div([
+            dcc.Store(id=self.ids.generic(aio_id, 'aio_id'), data=aio_id),
+            dcc.Store(id=self.ids.generic(aio_id, 'selections'), storage_type='session'),
+            html.H5('Folder/File Path:'),
+            label_component(dcc.Dropdown(id=self.ids.generic(aio_id, 'host'), options=host_options, persistence=True,
+                                         persistence_type='session'), 'Host Name'),
+            label_component(dcc.Dropdown(id=self.ids.generic(aio_id, 'user'), persistence=True,
+                                         persistence_type='session'), 'User Name'),
+            label_component(html.Div(id=self.ids.generic(aio_id, 'div-experiment-selections')), 'File Path'),
+            dcc.Store(self.ids.store(aio_id), storage_type='session'),
+        ])
+        return layout
+
+    @staticmethod
+    @callback(
+        Output(ids.generic(MATCH, 'user'), 'options'),
+        Input(ids.generic(MATCH, 'host'), 'value'),
+    )
+    def create_dropdowns_for_user(host):
+        opts = []
+        if host:
+            opts = os.listdir(os.path.join(ddir, host))
+        return opts
+
+    @staticmethod
+    @callback(
+        Output(ids.generic(MATCH, 'div-experiment-selections'), 'children'),
+        Input(ids.file_dropdown(MATCH, ALL), 'value'),
+        Input(ids.generic(MATCH, 'host'), 'value'),
+        Input(ids.generic(MATCH, 'user'), 'value'),
+        State(ids.generic(MATCH, 'aio_id'), 'data'),
+        State(ids.generic(MATCH, 'div-experiment-selections'), 'children'),
+        State(ids.generic(MATCH, 'selections'), 'data'),
+    )
+    def add_dropdown_for_experiment(values, host, user, aio_id, existing, stored_values):
+        """Always aim to have an empty dropdown available (i.e. for next depth of folders)"""
+        values = [v if v else '' for v in values]
+
+        # If host or user is trigger, or no experiment dropdowns already
+        if any([v == ctx.triggered_id.get('key', None) if ctx.triggered_id else False for v in ['host', 'user']]) or not existing:
+            if host and user:
+                opts = sorted(os.listdir(os.path.join(ddir, host, user)))
+                if not existing and stored_values:  # Page reload
+                    stored_values = [s if s else '' for s in stored_values]
+                    if os.path.exists(os.path.join(ddir, host, user, *stored_values)):
+                        dds = []
+                        p = os.path.join(ddir, host, user)
+                        for v in stored_values:
+                            opts = sorted(os.listdir(p))
+                            dds.append(dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts, value=v))
+                            p = os.path.join(p, v)
+                        return dds
+                    else:
+                        return [dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts)]
+                elif not existing or not os.path.exists(os.path.join(host, user, *values)):  # Make first set of options
+                    return [dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts)]
+            else:  # Don't know what options to show yet
+                return []
+        # If there are existing dropdowns, decide if some need to be removed or added
+        elif values:
+            for i, v in enumerate(values):
+                if not v and i < len(values) - 1:
+                    new = existing[:i + 1]  # Remove dropdowns after first empty
+                    return new
+
+            last_val = values[-1]
+            if last_val:  # If last dropdown is filled, add another (unless it isn't a directory)
+                depth = len(existing)
+                if os.path.isdir(os.path.join(ddir, host, user, *values)):
+                    opts = sorted(os.listdir(os.path.join(ddir, host, user, *values)))
+                    existing.append(dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, depth), options=opts))
+                    return existing
+        return dash.no_update
+
+    @staticmethod
+    @callback(
+        Output(ids.store(MATCH), 'data'),
+        Input(ids.generic(MATCH, 'host'), 'value'),
+        Input(ids.generic(MATCH, 'user'), 'value'),
+        Input(ids.file_dropdown(MATCH, ALL), 'value'),
+    )
+    def update_full_path(host, user, exp_path):
+        host = host if host else ''
+        user = user if user else ''
+        exp_path = [p if p else '' for p in exp_path]
+        return os.path.join(ddir, host, user, *exp_path)
+
+    @staticmethod
+    @callback(
+        Output(ids.generic(MATCH, 'selections'), 'data'),
+        Input(ids.file_dropdown(MATCH, ALL), 'value'),
+    )
+    def persistent_selections(values):
+        return values
+
+
+class DatSelectorAIO(html.Div):
+
+    # Functions to create pattern-matching callbacks of the subcomponents
+    class ids:
+        @staticmethod
+        def generic(aio_id, key: str):
+            return {
+                'component': 'DatSelector',
+                'subcomponent': f'generic',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+        @staticmethod
+        def store(aio_id):
+            return {
+                'component': 'DatSelector',
+                'subcomponent': 'Store',
+                'aio_id': aio_id,
+            }
+
+    def __init__(self, aio_id=None):
+        if aio_id is None:
+            aio_id = str(uuid.uuid4())
+        self.store_id = self.ids.store(aio_id)
+        store = dcc.Store(id=self.store_id)
+
+        datnum_input = Input_(id=self.ids.generic(aio_id, key='inp-datnum'), type='number', inputmode='numeric', min=0,
+                              step=1, persistence=True, persistence_type='session')
+
+        raw_tog = dbc.RadioButton(id=self.ids.generic(aio_id, key='tog-raw'), persistence=True, persistence_type='session')
+
+        layout = html.Div([
+            store,
+            ExperimentFileSelectorAIO(aio_id=aio_id),
+            label_component(datnum_input, 'Datnum:'),
+            label_component(raw_tog, 'RAW File:'),
+        ])
+        super().__init__(children=[layout])  # html.Div contains layout
+
+    @staticmethod
+    @callback(
+        Output(ids.store(MATCH), 'data'),
+        Input(ExperimentFileSelectorAIO.ids.store(MATCH), 'data'),
+        Input(ids.generic(MATCH, key='inp-datnum'), 'value'),
+        Input(ids.generic(MATCH, key='tog-raw'), 'value'),
+        State(ids.store(MATCH), 'data'),
+    )
+    def update_selection(filepath, datnum, raw, current_path):
+        datnum = datnum if datnum else 0
+        data_path = None
+        if filepath and os.path.exists(filepath):
+            if os.path.isdir(filepath):
+                datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
+                data_path = os.path.join(filepath, datfile)
+            else:
+                data_path = filepath
+        if data_path == current_path:
+            return dash.no_update
+        return data_path
 
 
 @deprecated(details='2022-07-05 -- Use improved dat selector which works with measurement-data layout insteqd')
@@ -659,6 +876,7 @@ def fig_waterfall(fig: go.Figure, waterfall_state: bool):
         else:
             pass
     return fig
+
 
 
 

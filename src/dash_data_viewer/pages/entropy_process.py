@@ -12,7 +12,7 @@ import dash_data_viewer.components as c
 from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load, standard_input_layout, standard_output_layout
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.dash_hdf import DashHDF, HdfId
-from dash_data_viewer.new_dat_util import ExperimentFileSelector, get_dat
+from dash_data_viewer.new_dat_util import get_dat
 
 from dat_analysis.analysis_tools.entropy import EntropySignalProcess
 from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, PlottableData, DataPlotter
@@ -563,7 +563,7 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
 
 
 # Actually make the page
-dat_selector = ExperimentFileSelector()
+dat_selector = c.DatSelectorAIO()
 
 # # Store to hold the DashHDF ID where any external info (i.e. from Dat or File) is stored
 # # This is to avoid relying on any specific original source of data but keep data local and only send pointer to store

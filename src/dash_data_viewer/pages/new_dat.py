@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
-from dash_data_viewer.new_dat_util import get_dat, ExperimentFileSelector
+from dash_data_viewer.new_dat_util import get_dat
 
 from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
 from dat_analysis.hdf_file_handler import GlobalLock
@@ -42,31 +42,32 @@ global_persistence = 'local'
 persistence_on = True
 
 
-dat_selector = ExperimentFileSelector()
-data_path_store = dcc.Store(id='store-data-path', storage_type='session')
+# dat_selector = c.ExperimentFileSelector()
+# data_path_store = dcc.Store(id='store-data-path', storage_type='session')
+#
+#
+# datnum = c.Input_(id='inp-datnum', type='number', value=0, persistence_type=global_persistence, persistence=persistence_on)
+# raw_tog = dcc.RadioItems(id='tog-raw', persistence=persistence_on, persistence_type=global_persistence)
+#
+#
+# @callback(
+#     Output('store-data-path', 'data'),
+#     Input(dat_selector.store_id, 'data'),
+#     Input(datnum.id, 'value'),
+#     Input(raw_tog.id, 'value'),
+# )
+# def generate_dat_path(filepath, datnum, raw):
+#     datnum = datnum if datnum else 0
+#     data_path = None
+#     if filepath and os.path.exists(filepath):
+#         if os.path.isdir(filepath):
+#             datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
+#             data_path = os.path.join(filepath, datfile)
+#         else:
+#             data_path = filepath
+#     return data_path
 
-
-datnum = c.Input_(id='inp-datnum', type='number', value=0, persistence_type=global_persistence, persistence=persistence_on)
-raw_tog = dcc.RadioItems(id='tog-raw', persistence=persistence_on, persistence_type=global_persistence)
-
-
-@callback(
-    Output('store-data-path', 'data'),
-    Input(dat_selector.store_id, 'data'),
-    Input(datnum.id, 'value'),
-    Input(raw_tog.id, 'value'),
-)
-def generate_dat_path(filepath, datnum, raw):
-    datnum = datnum if datnum else 0
-    data_path = None
-    if filepath and os.path.exists(filepath):
-        if os.path.isdir(filepath):
-            datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
-            data_path = os.path.join(filepath, datfile)
-        else:
-            data_path = filepath
-    return data_path
-
+dat_selector = c.DatSelectorAIO()
 
 data_options = label_component(
     dcc.Dropdown(id='dd-data-names', value='', options=[]),
@@ -76,7 +77,8 @@ data_options = label_component(
 @callback(
     Output('dd-data-names', 'options'),
     Output('dd-data-names', 'value'),
-    Input('store-data-path', 'data'),
+    # Input('store-data-path', 'data'),
+    Input(dat_selector.store_id, 'data'),
     State('dd-data-names', 'value'),
 )
 def update_data_options(dat_path, current_value):
@@ -100,7 +102,8 @@ graphs = html.Div([
 
 @callback(
     Output(g1.update_figure_store_id, 'data'),
-    Input('store-data-path', 'data'),
+    # Input('store-data-path', 'data'),
+    Input(dat_selector.store_id, 'data'),
     Input('dd-data-names', 'value'),
 )
 def update_graph(data_path, data_key) -> go.Figure():
@@ -143,7 +146,8 @@ logs_info = html.Div([
 
 @callback(
     Output('div-logs-info', 'children'),
-    Input('store-data-path', 'data'),
+    # Input('store-data-path', 'data'),
+    Input(dat_selector.store_id, 'data'),
 )
 def update_logs_area(data_path):
     dat = get_dat(data_path)
@@ -173,7 +177,8 @@ all_graphs = html.Div(id='div-all-graphs')
 
 @callback(
     Output('div-all-graphs', 'children'),
-    Input('store-data-path', 'data'),
+    # Input('store-data-path', 'data'),
+    Input(dat_selector.store_id, 'data'),
     Input('dd-data-names', 'value'),
 )
 def generate_all_data_graphs(dat_path, avoid_selected):
@@ -212,10 +217,10 @@ def generate_all_data_graphs(dat_path, avoid_selected):
 
 sidebar = dbc.Container([
     dat_selector,
-    datnum,
-    raw_tog,
+    # datnum,
+    # raw_tog,
     data_options,
-    data_path_store,
+    # data_path_store,
 ],
 )
 
