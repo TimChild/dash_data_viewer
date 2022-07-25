@@ -15,7 +15,7 @@ from dash_data_viewer.dash_hdf import DashHDF, HdfId
 from dash_data_viewer.new_dat_util import get_dat
 
 from dat_analysis.analysis_tools.entropy import EntropySignalProcess
-from dat_analysis.analysis_tools.new_procedures import SeparateSquareProcess, PlottableData, DataPlotter
+from dat_analysis.analysis_tools.new_procedures import PlottableData, DataPlotter
 from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
 from dat_analysis.analysis_tools.square_wave import SeparateSquareProcess
 from dat_analysis.analysis_tools.transition import CenteredAveragingProcess

@@ -10,7 +10,8 @@ import plotly.graph_objects as go
 import dash
 import uuid
 
-from dat_analysis.analysis_tools.new_procedures import Process, SeparateSquareProcess
+from dat_analysis.analysis_tools.new_procedures import Process
+from dat_analysis.analysis_tools.square_wave import SeparateSquareProcess
 from dash_data_viewer.layout_util import label_component
 import dash_data_viewer.components as c
 from dash_data_viewer.dash_hdf import DashHDF
