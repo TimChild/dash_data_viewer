@@ -331,7 +331,16 @@ class DatSelectorAIO(html.Div):
                 'aio_id': aio_id,
             }
 
-    def __init__(self, aio_id=None):
+        @staticmethod
+        def button(aio_id, key):
+            return {
+                'component': 'DatSelector',
+                'subcomponent': 'button',
+                'key': key,
+                'aio_id': aio_id,
+            }
+
+    def __init__(self, aio_id=None, multi_select=False):
         if aio_id is None:
             aio_id = str(uuid.uuid4())
         self.store_id = self.ids.store(aio_id)
@@ -342,23 +351,52 @@ class DatSelectorAIO(html.Div):
 
         raw_tog = dbc.RadioButton(id=self.ids.generic(aio_id, key='tog-raw'), persistence=True, persistence_type='session')
 
+        # multi-select add/remove
+        multi_state = dcc.Store(id=self.ids.generic(aio_id, 'store-multi-state'), data=multi_select)
+        add_button = dbc.Button(children='Add', id=self.ids.button(aio_id, 'add'), color='success')
+        clear_button = dbc.Button(children='Clear', id=self.ids.button(aio_id, 'clear'), color='warning')
+        update_button = dbc.Button(children='Update', id=self.ids.button(aio_id, 'update'), color='success')
+        dropdown_multi = dcc.Dropdown(id=self.ids.generic(aio_id, 'dd-multi'), multi=True)
+
         layout = html.Div([
             store,
             ExperimentFileSelectorAIO(aio_id=aio_id),
             label_component(datnum_input, 'Datnum:'),
             label_component(raw_tog, 'RAW File:'),
+            html.Div(hidden=not multi_select, children=[
+                multi_state,
+                add_button,
+                clear_button,
+                update_button,
+                dropdown_multi,
+            ])
         ])
         super().__init__(children=[layout])  # html.Div contains layout
 
     @staticmethod
     @callback(
         Output(ids.store(MATCH), 'data'),
+        Output(ids.generic(MATCH, 'dd-multi'), 'options'),
+        Output(ids.generic(MATCH, 'dd-multi'), 'value'),
+
         Input(ExperimentFileSelectorAIO.ids.store(MATCH), 'data'),
         Input(ids.generic(MATCH, key='inp-datnum'), 'value'),
         Input(ids.generic(MATCH, key='tog-raw'), 'value'),
+
+        Input(ids.button(MATCH, key='add'), 'n_clicks'),
+        Input(ids.button(MATCH, key='clear'), 'n_clicks'),
+        Input(ids.button(MATCH, key='update'), 'n_clicks'),
+
+        State(ids.generic(MATCH, 'store-multi-state'), 'data'),
+        State(ids.generic(MATCH, 'dd-multi'), 'options'),
+        State(ids.generic(MATCH, 'dd-multi'), 'value'),
+
         State(ids.store(MATCH), 'data'),
     )
-    def update_selection(filepath, datnum, raw, current_path):
+    def update_selection(filepath, datnum, raw,
+                         multi_add_selection, multi_clear_selection, multi_update_selection, multi_select, multi_current_opts, multi_current_vals,
+                         current_path):
+        # Calculate single dat path
         datnum = datnum if datnum else 0
         data_path = None
         if filepath and os.path.exists(filepath):
@@ -367,9 +405,31 @@ class DatSelectorAIO(html.Div):
                 data_path = os.path.join(filepath, datfile)
             else:
                 data_path = filepath
-        if data_path == current_path:
-            return dash.no_update
-        return data_path
+
+        # Logic for single-select DatSelector
+        if not multi_select:
+            if data_path == current_path:
+                data_path = dash.no_update
+            return data_path, dash.no_update, dash.no_update
+        # Logic for multi-selectable DatSelector
+        else:
+            dd_opts, dd_vals = multi_current_opts if multi_current_opts else [], multi_current_vals if multi_current_vals else []
+
+            if ctx.triggered_id:
+                if ctx.triggered_id.get('key') == 'add' and data_path:
+                    filename = os.path.split(data_path)[-1]
+                    opt_vals = [e.get('value') for e in dd_opts]
+                    if data_path not in opt_vals:  # Possible to end up with multiple options that have the same label but different values (i.e. dat1.h5 from multiple experiments)
+                        dd_opts.append({'label': filename, 'value': data_path})
+                        dd_vals.append(data_path)
+                elif ctx.triggered_id.get('key') == 'clear':
+                    dd_opts, dd_vals = [], []
+                elif ctx.triggered_id.get('key') == 'update':
+                    pass  # dd_vals already set with current selection
+
+            if dd_vals == current_path:
+                dd_vals = dash.no_update
+            return dd_vals, dd_opts, dd_vals
 
 
 @deprecated(details='2022-07-05 -- Use improved DatSelectorAIO which works with measurement-data layout instead')
