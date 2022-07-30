@@ -18,8 +18,7 @@ import time
 from deprecation import deprecated
 
 from dat_analysis import useful_functions as u, get_local_config
-from layout_util import label_component, vertical_label
-
+from .layout_util import label_component, vertical_label
 
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
 os.makedirs(tempdir, exist_ok=True)
@@ -143,8 +142,9 @@ class CollapseAIO(html.Div):
 
         layout = [
             dbc.Button(button_text, id=self.ids.generic(aio_id, 'expand-button')),
-            dbc.Collapse(children=content, id=self.ids.generic(aio_id, 'collapse'), is_open=start_open),
+            collapse := dbc.Collapse(children=content, id=self.ids.generic(aio_id, 'collapse'), is_open=start_open),
         ]
+        self.collapse = collapse
         super().__init__(children=layout)  # html.Div contains layout
 
     @staticmethod
@@ -214,15 +214,46 @@ class ExperimentFileSelectorAIO(html.Div):
 
     def layout(self, aio_id):
         host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
+
+        # Get some defaults from config.toml if they are set
+        host = config['loading'].get('default_host_name', None)
+        user = config['loading'].get('default_user_name', None)
+        experiment = config['loading'].get('default_experiment_name', None)
+        user_opts, experiment_opts = [], []
+        host_val, user_val, experiment_val = None, None, None
+        exp_dds = None
+        if host and host in host_options:
+            host_val = host
+            user_opts = os.listdir(os.path.join(ddir, host))
+        if user and user_opts and user in user_opts:
+            user_val = user
+            experiment_opts = os.listdir(os.path.join(ddir, host, user))
+        if experiment and experiment_opts:
+            experiment = os.path.normpath(experiment)
+            if len(experiment.split(
+                    os.sep)) == 1:  # Only do this if experiment is a single folder (not e.g. 'top/subdir')
+                if experiment in experiment_opts:
+                    experiment_val = experiment
+                    next_opts = os.listdir(os.path.join(ddir, host, user, experiment))
+                    exp_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0),
+                                          options=experiment_opts, value=experiment_val)
+                    next_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 1), options=next_opts)
+                    exp_dds = [exp_dd, next_dd]
+
+        # Make layout of File Selector (including defaults found above)
         layout = html.Div([
             dcc.Store(id=self.ids.generic(aio_id, 'aio_id'), data=aio_id),
             dcc.Store(id=self.ids.generic(aio_id, 'selections'), storage_type='session'),
             html.H5('Folder/File Path:'),
-            label_component(dcc.Dropdown(id=self.ids.generic(aio_id, 'host'), options=host_options, persistence=True,
+            label_component(dcc.Dropdown(id=self.ids.generic(aio_id, 'host'),
+                                         options=host_options, value=host_val,
+                                         persistence=True,
                                          persistence_type='session'), 'Host Name'),
             label_component(dcc.Dropdown(id=self.ids.generic(aio_id, 'user'), persistence=True,
+                                         options=user_opts, value=user_val,
                                          persistence_type='session'), 'User Name'),
-            label_component(html.Div(id=self.ids.generic(aio_id, 'div-experiment-selections')), 'File Path'),
+            label_component(html.Div(id=self.ids.generic(aio_id, 'div-experiment-selections'),
+                                     children=exp_dds), 'File Path'),
             dcc.Store(self.ids.store(aio_id), storage_type='session'),
         ])
         return layout
@@ -253,7 +284,8 @@ class ExperimentFileSelectorAIO(html.Div):
         values = [v if v else '' for v in values]
 
         # If host or user is trigger, or no experiment dropdowns already
-        if any([v == ctx.triggered_id.get('key', None) if ctx.triggered_id else False for v in ['host', 'user']]) or not existing:
+        if any([v == ctx.triggered_id.get('key', None) if ctx.triggered_id else False for v in
+                ['host', 'user']]) or not existing:
             if host and user:
                 opts = sorted(os.listdir(os.path.join(ddir, host, user)))
                 if not existing and stored_values:  # Page reload
@@ -263,7 +295,9 @@ class ExperimentFileSelectorAIO(html.Div):
                         p = os.path.join(ddir, host, user)
                         for v in stored_values:
                             opts = sorted(os.listdir(p))
-                            dds.append(dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts, value=v))
+                            dds.append(
+                                dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts,
+                                             value=v))
                             p = os.path.join(p, v)
                         return dds
                     else:
@@ -284,7 +318,8 @@ class ExperimentFileSelectorAIO(html.Div):
                 depth = len(existing)
                 if os.path.isdir(os.path.join(ddir, host, user, *values)):
                     opts = sorted(os.listdir(os.path.join(ddir, host, user, *values)))
-                    existing.append(dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, depth), options=opts))
+                    existing.append(
+                        dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, depth), options=opts))
                     return existing
         return dash.no_update
 
@@ -311,7 +346,6 @@ class ExperimentFileSelectorAIO(html.Div):
 
 
 class DatSelectorAIO(html.Div):
-
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
         @staticmethod
@@ -349,7 +383,8 @@ class DatSelectorAIO(html.Div):
         datnum_input = Input_(id=self.ids.generic(aio_id, key='inp-datnum'), type='number', inputmode='numeric', min=0,
                               step=1, persistence=True, persistence_type='session')
 
-        raw_tog = dbc.RadioButton(id=self.ids.generic(aio_id, key='tog-raw'), persistence=True, persistence_type='session')
+        raw_tog = dbc.RadioButton(id=self.ids.generic(aio_id, key='tog-raw'), persistence=True,
+                                  persistence_type='session')
 
         # multi-select add/remove
         multi_state = dcc.Store(id=self.ids.generic(aio_id, 'store-multi-state'), data=multi_select)
@@ -394,7 +429,8 @@ class DatSelectorAIO(html.Div):
         State(ids.store(MATCH), 'data'),
     )
     def update_selection(filepath, datnum, raw,
-                         multi_add_selection, multi_clear_selection, multi_update_selection, multi_select, multi_current_opts, multi_current_vals,
+                         multi_add_selection, multi_clear_selection, multi_update_selection, multi_select,
+                         multi_current_opts, multi_current_vals,
                          current_path):
         # Calculate single dat path
         datnum = datnum if datnum else 0
@@ -756,6 +792,11 @@ class GraphAIO(html.Div):
     # Provides
     None
     """
+    # Params for downloading figures
+
+    _WIDTH = 1000  # Default is ~1000
+    _HEIGHT = 450  # Default is ~450
+    _SCALE = 2  # Default is 1 (higher scales up the whole figure when downloaded, so higher quality)
 
     # Functions to create pattern-matching callbacks of the subcomponents
     class ids:
@@ -818,7 +859,15 @@ class GraphAIO(html.Div):
         self.update_figure_store_id = self.ids.update_figure_store(aio_id)
         update_fig_store = dcc.Store(id=self.update_figure_store_id, data=figure)
         self.graph_id = self.ids.graph(aio_id)
-        fig = dcc.Graph(id=self.graph_id, figure=figure, **graph_kwargs)
+        fig = dcc.Graph(id=self.graph_id, figure=figure, **graph_kwargs,
+                        config=dict(
+                            toImageButtonOptions={'format': 'png',  # one of png, svg, jpeg, webp
+                                                  # 'filename': 'custom_image',
+                                                  'height': self._HEIGHT,
+                                                  'width': self._WIDTH,
+                                                  'scale': self._SCALE  # Multiply title/legend/axis/canvas sizes by this factor
+                                                  }),
+                        )
 
         download_buttons = dbc.ButtonGroup([
             dbc.Button(children=name, id=self.ids.button(aio_id, name)) for name in ['HTML', 'Jpeg', 'SVG', 'Data']
@@ -862,7 +911,21 @@ class GraphAIO(html.Div):
                 fig = update_fig
 
         fig = fig_waterfall(fig, waterfall)
-
+        fig.update_layout(
+            template="plotly_white",
+            xaxis=dict(
+                mirror=True,
+                ticks='outside',
+                showline=True,
+                linecolor='black',
+            ),
+            yaxis=dict(
+                mirror=True,
+                ticks='outside',
+                showline=True,
+                linecolor='black',
+            ),
+        )
         if fig:
             return fig
         else:
@@ -890,7 +953,8 @@ class GraphAIO(html.Div):
                 filepath = os.path.join(tempdir, 'jpgdownload.jpg')
                 with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
                     time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
-                    fig.write_image(filepath, format='jpg')
+                    fig.write_image(filepath, format='jpg',
+                                    width=GraphAIO._WIDTH, height=GraphAIO._HEIGHT, scale=GraphAIO._SCALE)
                     return dcc.send_file(filepath, f'{download_name}.jpg', type='image/jpg')
             elif selected == 'svg':
                 filepath = os.path.join(tempdir, 'svgdownload.svg')
@@ -911,14 +975,17 @@ def fig_waterfall(fig: go.Figure, waterfall_state: bool):
     if fig:
         fig = go.Figure(fig)
     if fig and fig.data:
-        if len(fig.data) == 1 and isinstance(fig.data[0], go.Heatmap) and waterfall_state:  # Convert from heatmap to waterfall
+        if len(fig.data) == 1 and isinstance(fig.data[0],
+                                             go.Heatmap) and waterfall_state:  # Convert from heatmap to waterfall
             hm = fig.data[0]
             fig.data = ()
             x = hm.x
             for r, y in zip(hm.z, hm.y):
                 fig.add_trace(go.Scatter(x=x, y=r, name=y))
-            fig.update_layout(legend=dict(title=fig.layout.yaxis.title.text), yaxis_title=fig.layout.coloraxis.colorbar.title.text)
-        elif len(fig.data) > 1 and all([isinstance(d, go.Scatter) for d in fig.data]) and not waterfall_state:  # Convert from waterfall to heatmap
+            fig.update_layout(legend=dict(title=fig.layout.yaxis.title.text),
+                              yaxis_title=fig.layout.coloraxis.colorbar.title.text)
+        elif len(fig.data) > 1 and all([isinstance(d, go.Scatter) for d in
+                                        fig.data]) and not waterfall_state:  # Convert from waterfall to heatmap
             rows = fig.data
             fig.data = ()
             x = rows[0].x
@@ -932,11 +999,8 @@ def fig_waterfall(fig: go.Figure, waterfall_state: bool):
                 y.append(v)
             z = np.array([r.y for r in rows])
             fig.add_trace(go.Heatmap(x=x, y=y, z=z))
-            fig.update_layout(yaxis_title=fig.layout.legend.title.text, legend=None, coloraxis=dict(colorbar=dict(title=fig.layout.yaxis.title.text)))
+            fig.update_layout(yaxis_title=fig.layout.legend.title.text, legend=None,
+                              coloraxis=dict(colorbar=dict(title=fig.layout.yaxis.title.text)))
         else:
             pass
     return fig
-
-
-
-
