@@ -11,7 +11,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-global_lock = GlobalLock(os.path.join(tempfile.gettempdir(), 'dash_lock.lock'))
+tempdir = os.path.join(tempfile.gettempdir(), 'dash_data_viewer')
+os.makedirs(tempdir, exist_ok=True)
+
+global_lock = GlobalLock(os.path.join(tempdir, 'dash_lock.lock'))
 
 
 def get_dat(data_path):

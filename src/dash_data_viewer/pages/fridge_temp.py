@@ -1,3 +1,5 @@
+import threading
+
 import dash
 import json
 import os
@@ -19,7 +21,11 @@ import dat_analysis.useful_functions as U
 import tempfile
 
 import logging
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+U.set_default_logging()
+
 
 config = get_local_config()
 
@@ -50,6 +56,8 @@ data_options = label_component(
     State('ft-dd-data-names', 'value'),
 )
 def update_data_options(dat_paths, current_value):
+    logger.debug('start')
+    print(f'{threading.get_ident()}: starting update_data_options for {dat_paths}')
     options = None
     value = None
     for path in dat_paths:
@@ -66,6 +74,8 @@ def update_data_options(dat_paths, current_value):
         value = current_value
     elif options:
         value = options[0]
+    logger.debug('finish')
+    print(f'{threading.get_ident()}: finishing update_data_options for {dat_paths}')
     return options, value
 
 
@@ -75,8 +85,6 @@ theta_graphs = html.Div([
 ])
 
 
-
-
 @callback(
     Output(g1.update_figure_store_id, 'data'),
     # Input('store-data-path', 'data'),
@@ -84,8 +92,11 @@ theta_graphs = html.Div([
     Input('ft-dd-data-names', 'value'),
 )
 def update_thetas_graph(data_paths, data_key) -> go.Figure():
+    logger.debug('start')
+    print(f'{threading.get_ident()}: starting update_thetas_graph for {data_paths}')
     fig = go.Figure()
     for path in data_paths:
+        logger.debug(f'Adding dat {path} to thetas')
         dat = get_dat(path)
         if dat:
             averaging = CenteredAveragingProcess()
@@ -108,10 +119,14 @@ def update_thetas_graph(data_paths, data_key) -> go.Figure():
                 transition_data=avg_data,
             )
             fit_process.process()
-            fit = fit_process.outputs['fits']
-            if fit and fit.success:
-                temp = dat.Logs.temperatures['mc']*1000
-                fig.add_trace(go.Scatter(x=[temp], y=[fit.outputs['fits'][0].best_values.get('theta', np.nan)], name=f'Dat{dat.datnum}'))
+            fits = fit_process.outputs['fits']
+            if fits and isinstance(fits, list) and len(fits) > 0:
+                fit = fits[0]
+                if fit.success:
+                    temp = dat.Logs.temperatures['mc']*1000
+                    fig.add_trace(go.Scatter(x=[temp], y=[fit.best_values.get('theta', np.nan)], name=f'Dat{dat.datnum}'))
+    logger.debug(f'finish')
+    print(f'{threading.get_ident()}: finishing update_thetas_graph for {data_paths}')
     return fig
 
 
@@ -123,8 +138,7 @@ per_dat_graphs = html.Div([
 
 def check_exists(dat: DatHDF, group_path: str):
     if dat:
-        with dat as f:
-            # if 'dash' in f.keys() and 'fridge_temp' in f['dash'].keys() and 'centering' in f['dash']['fridge_temp'].keys():
+        with dat.hdf_read as f:
             if group := f.get(group_path, None):
                 if group is not None:
                     return True
@@ -135,14 +149,13 @@ def get_averaging(dat: DatHDF, data_key: str):
     save_name = f'centering_{data_key.replace("/", ".")}'
 
     averaging = None
-    with dat as f:  # Read only first
+    with dat.hdf_read as f:  # Read only first
         if check_exists(dat, f'dash/fridge_temp/{save_name}'):
             averaging = CenteredAveragingProcess.from_hdf(f['dash']['fridge_temp'], name=save_name)
 
     if not averaging:
-        dat.mode = 'r+'
-        with dat as f:  # Now with write mode
-            if check_exists(dat, 'dash/fridge_temp/centering'):  # In case this call was queued behind another call
+        with dat.hdf_write as f:  # Now with write mode
+            if check_exists(dat, f'dash/fridge_temp/{save_name}'):  # In case this call was queued behind another call
                 averaging = CenteredAveragingProcess.from_hdf(f['dash']['fridge_temp'], name=save_name)
             else:
                 averaging = CenteredAveragingProcess()
@@ -154,9 +167,10 @@ def get_averaging(dat: DatHDF, data_key: str):
                     initial_params=None,
                     override_centers_for_averaging=None,
                 )
-                averaging.process(),  # TODO: Save this result to dat
+                averaging.process()
                 ft_group = f.require_group('dash/fridge_temp')
-                averaging.save_to_hdf(ft_group, name='centering')
+                averaging.save_to_hdf(ft_group, name=save_name)
+        dat.mode = 'r'
     return averaging
 
 
@@ -167,15 +181,18 @@ def get_averaging(dat: DatHDF, data_key: str):
     State(per_dat_collapse.collapse, 'is_open'),
 )
 def update_per_dat_graphs(data_paths, data_key, open):
+    logger.debug(f'start')
+    print(f'{threading.get_ident()}: starting update_per_dat_graphs for {data_paths}')
+
     def data_with_centers_fig(x, y, data_2d, centers):
         fig = go.Figure()
         fig.add_trace(go.Heatmap(x=x, y=y, z=data_2d))
-        fig.add_trace(go.Scatter(x=y, y=centers, mode='markers', marker=dict(color='white')))
+        fig.add_trace(go.Scatter(x=centers, y=y, mode='markers', marker=dict(color='white')))
         return fig
 
     def data_with_stdev_fig(x, data, stdev):
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x, y=data, yerr=stdev))
+        fig.add_trace(go.Scatter(x=x, y=data, error_y=dict(type='data', array=stdev, visible=True)))
         return fig
 
     if not open:
@@ -201,6 +218,8 @@ def update_per_dat_graphs(data_paths, data_key, open):
     for entry in all_entries:
         layout.append(entry)
         layout.append(html.Hr())
+    logger.debug(f'finish')
+    print(f'{threading.get_ident()}: finishing update_per_dat_graphs for {data_paths}')
     return html.Div(children=layout)
 
 
