@@ -1,8 +1,6 @@
 import threading
 
 import dash
-import json
-import os
 from dash import html, dcc, callback, Input, Output, State
 import dash_bootstrap_components as dbc
 
@@ -13,14 +11,14 @@ import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.new_dat_util import get_dat
 
-from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
+from dat_analysis.new_dat.new_dat_util import get_local_config
 from dat_analysis.analysis_tools.transition import CenteredAveragingProcess, TransitionFitProcess
 from dat_analysis.new_dat.dat_hdf import DatHDF
-from dat_analysis.hdf_file_handler import GlobalLock
 import dat_analysis.useful_functions as U
-import tempfile
 
 import logging
+
+from new_dat_util import check_exists
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -134,15 +132,6 @@ dat_graphs = html.Div(id='ft-div-dat-graphs')
 per_dat_graphs = html.Div([
     per_dat_collapse := c.CollapseAIO(content=dat_graphs, button_text='Per Dat Graphs', start_open=True)
 ])
-
-
-def check_exists(dat: DatHDF, group_path: str):
-    if dat:
-        with dat.hdf_read as f:
-            if group := f.get(group_path, None):
-                if group is not None:
-                    return True
-    return False
 
 
 def get_averaging(dat: DatHDF, data_key: str):

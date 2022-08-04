@@ -38,7 +38,7 @@ Overall aim
 """
 
 
-global_persistence = 'local'
+global_persistence = 'session'
 persistence_on = True
 
 
@@ -192,7 +192,7 @@ def generate_all_data_graphs(dat_path, avoid_selected):
                 fig = go.Figure()
                 data = dat.Data.get_data(k)
                 if data is not None and data.ndim > 0:
-                    x = x if x is not None else np.linspace(0, data.shape[-1], data.shape[-1])
+                    x = x if x is not None and x.shape == data.shape[-1] else np.linspace(0, data.shape[-1], data.shape[-1])
                     fig.update_layout(
                         title=f'Dat{dat.datnum}: {k}',
                     )
@@ -202,7 +202,7 @@ def generate_all_data_graphs(dat_path, avoid_selected):
                         fig.add_trace(go.Scatter(x=x, y=data))
                         figs.append(fig)
                     elif data.ndim == 2:
-                        y = y if y is not None else np.linspace(0, data.shape[-2], data.shape[-2])
+                        y = y if y is not None and y.shape == data.shaspe[-2] else np.linspace(0, data.shape[-2], data.shape[-2])
                         data, x, y = U.resample_data(data, x=x, y=y, max_num_pnts=500, resample_method='bin')
                         fig.add_trace(go.Heatmap(x=x, y=y, z=data))
                         fig.update_yaxes(title_text=dat.Logs.y_label)

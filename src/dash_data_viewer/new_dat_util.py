@@ -2,7 +2,7 @@
 
 import os
 
-from dat_analysis.new_dat.dat_hdf import get_dat_from_exp_filepath, save_path_from_exp_path
+from dat_analysis.new_dat.dat_hdf import get_dat_from_exp_filepath, save_path_from_exp_path, DatHDF
 from dat_analysis.hdf_file_handler import GlobalLock
 import tempfile
 
@@ -32,3 +32,11 @@ def get_dat(data_path):
         logger.info(f'No file at {data_path}')
     return dat
 
+
+def check_exists(dat: DatHDF, group_path: str):
+    if dat:
+        with dat.hdf_read as f:
+            if group := f.get(group_path, None):
+                if group is not None:
+                    return True
+    return False
