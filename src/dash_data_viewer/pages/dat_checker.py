@@ -1,23 +1,13 @@
 import dash
 import numbers
 import json
-import uuid
-import os
-from dash import html, dcc, callback, Input, Output, State, MATCH, ALL
+from dash import html, callback, Input, Output
 import dash_bootstrap_components as dbc
 
-import numpy as np
-import plotly.graph_objects as go
-
 import dash_data_viewer.components as c
-from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.new_dat_util import get_dat
 
 from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
-from dat_analysis.new_dat.dat_hdf import DatHDF
-from dat_analysis.hdf_file_handler import GlobalLock
-import dat_analysis.useful_functions as U
-import tempfile
 
 import logging
 
@@ -41,6 +31,8 @@ to have problems
 global_persistence = 'local'
 persistence_on = True
 
+UNIQUE_PAGE_ID = 'dat-checker'
+
 dat_selector = c.DatSelectorAIO()
 
 logs_info = html.Div([
@@ -51,90 +43,6 @@ logs_info = html.Div([
 ])
 
 
-class Messages:
-    class ids:
-        _id_counter = 0
-
-        @classmethod
-        def generate_id(cls, which: str, num=None):
-            num = num if num else cls._id_num()
-            return {
-                'component': f'{which}-message',
-                'key': num,
-            }
-
-        @classmethod
-        def _id_num(cls):
-            id_ = cls._id_counter
-            cls._id_counter += 1
-            return id_
-
-    ids = ids
-
-    def __init__(self, call_kwargs):
-        self.call_kwargs = call_kwargs
-        self._request = None
-
-    def setup(self, request):
-        self._request = request
-
-    def success_message(self, returned, dump_json=False):
-        # TODO: Add a collapse all successful callback
-        if dump_json:
-            returned = json.dumps(returned, indent=2, cls=NpEncoder)
-        message = html.Div([
-            html.H5(f'Success: {self._request}'),
-            dcc.Markdown(str(returned), style={'white-space': 'pre'}),
-            html.Hr(),
-        ],
-            id=self.ids.generate_id('success'),
-            style={'color': 'green'},
-        )
-        return message
-
-    def warning_message(self, returned, expected):
-        message = html.Div([
-            html.H5(f'Warning: {self._request}'),
-            dcc.Markdown(f'Found:\n{returned}\n\nExpected:\n{expected}'),
-            html.Hr(),
-        ],
-            id=self.ids.generate_id('warning'),
-            style={'color': 'orange'}
-        )
-        return message
-
-    def error_message(self, exception, additional_info=None):
-        additional_info = html.P(f'{additional_info}') if additional_info else html.Div()
-        message = html.Div([
-            html.H5(f'Error: {self._request}'),
-            html.P('\n'.join(['Exception Raised:', f'{exception}'])),
-            additional_info,
-            dcc.Markdown(f'Call kwargs: \n {self.call_kwargs}',
-                         style={'white-space': 'pre'}),
-            html.Hr(),
-        ],
-            id=self.ids.generate_id('error'),
-            style={'color': 'red'},
-        )
-        return message
-
-    @classmethod
-    def collapse_all_button(cls, which: str):
-        button = dbc.Button(id=f'dc-button-{which}-visible', children=which)
-
-        @callback(
-            Output(cls.ids.generate_id(which, ALL), 'hidden'),
-            Input(button, 'n_clicks'),
-            State(cls.ids.generate_id(which, ALL), 'hidden'),
-        )
-        def toggle_visible(clicks, current_states):
-            if clicks:
-                return [bool(clicks % 2)]*len(current_states)
-            return [False]*len(current_states)
-
-        return button
-
-
 @callback(
     Output('dc-div-logs-info', 'children'),
     Input(dat_selector.store_id, 'data'),
@@ -142,7 +50,7 @@ class Messages:
 def update_logs_area(data_path):
     entries = []
 
-    message = Messages(call_kwargs={'data_path': data_path})
+    message = c.MessagesAIO(call_kwargs={'data_path': data_path}, unique_id=UNIQUE_PAGE_ID)
 
     message.setup(request='test_request_responses')
     entries.append(message.success_message('success returned'))
@@ -227,16 +135,19 @@ def update_logs_area(data_path):
     except Exception as e:
         entries.append(message.error_message(e))
 
-
     return html.Div([entry for entry in entries])
 
 
 sidebar = dbc.Container([
     dat_selector,
-    Messages.collapse_all_button('success'),
-    Messages.collapse_all_button('warning'),
-    Messages.collapse_all_button('error'),
-
+    dbc.Card([
+        dbc.CardHeader('Toggle Visibility'),
+        dbc.CardBody([
+            c.MessagesAIO.collapse_all_button(unique_id=UNIQUE_PAGE_ID, which='success'),
+            c.MessagesAIO.collapse_all_button(unique_id=UNIQUE_PAGE_ID, which='warning'),
+            c.MessagesAIO.collapse_all_button(unique_id=UNIQUE_PAGE_ID, which='error'),
+        ])
+    ]),
 ],
 )
 

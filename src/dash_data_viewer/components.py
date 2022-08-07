@@ -1,3 +1,5 @@
+import json
+
 import dash
 from dash import Input, Output, State, dcc, html, callback, MATCH, ALL, ALLSMALLER, dash, ctx
 from dataclasses import dataclass, asdict
@@ -18,6 +20,7 @@ import time
 from deprecation import deprecated
 
 from dat_analysis import useful_functions as u, get_local_config
+from dat_analysis.new_dat.new_dat_util import NpEncoder
 from .layout_util import label_component, vertical_label
 
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
@@ -1004,3 +1007,127 @@ def fig_waterfall(fig: go.Figure, waterfall_state: bool):
         else:
             pass
     return fig
+
+
+class MessagesAIO:
+    """
+    Note: Not quite a standard AIO, see below for example of usage.
+    Rough idea is that this creates nicely formatted messages for various outcomes without having to write WET code.
+    Also provides easy creating of buttons that interact with those messages with efficient callbacks that are run
+    automatically the first time one is created (and then doesn't try to run the callback more after that)
+
+    Examples:
+        # Rough example to give an idea of the intended use of this quasi-AIO component
+        message = MessageAIO(unique_id='unique-id-for-page')
+        message.setup(request='e.g. trying to call do something')
+        try:
+            val = do_something()
+            if success:
+                m = message.success_message(val)
+            elif warning:
+                m = message.warning_message(val, expected)
+        except Exception as e:
+            m = message.error_message(e)
+
+        # Create a button which can collapse all 'success', 'warning', or 'error' messages
+        toggle_success_button = MessageAIO.collapse_all_button(unique_id='unique-id-for-page', which='success')
+
+        layout = html.Div([
+            toggle_success_button,
+            m
+        ])
+    """
+    # Record whether the button callback has been run yet (can change this to a dict if necessary)
+    # Preventing callback being run multiple times if multiple Message components are used
+    _callback_made = False
+
+    class ids:
+        _id_counter = 0
+
+        @classmethod
+        def generate_id(cls, unique_id, which: str, num=None):
+            num = num if num else cls._id_num()
+            return {
+                'unique_id': unique_id,
+                'component': f'{which}-message',
+                'key': num,
+            }
+
+        @classmethod
+        def _id_num(cls):
+            id_ = cls._id_counter
+            cls._id_counter += 1
+            return id_
+
+    ids = ids
+
+    def __init__(self, call_kwargs=None, unique_id=None):
+        unique_id = unique_id if unique_id else uuid.uuid4()
+        self.unique_id = unique_id
+        self.call_kwargs = call_kwargs
+        self._request = None
+
+    def setup(self, request):
+        self._request = request
+
+    def success_message(self, returned, dump_json=False):
+        # TODO: Add a collapse all successful callback
+        if dump_json:
+            returned = json.dumps(returned, indent=2, cls=NpEncoder)
+        message = html.Div([
+            html.H5(f'Success: {self._request}'),
+            dcc.Markdown(str(returned), style={'white-space': 'pre'}),
+            html.Hr(),
+        ],
+            id=self.ids.generate_id(self.unique_id, 'success'),
+            style={'color': 'green'},
+        )
+        return message
+
+    def warning_message(self, returned, expected):
+        message = html.Div([
+            html.H5(f'Warning: {self._request}'),
+            dcc.Markdown(f'Found:\n{returned}\n\nExpected:\n{expected}'),
+            html.Hr(),
+        ],
+            id=self.ids.generate_id(self.unique_id, 'warning'),
+            style={'color': 'orange'}
+        )
+        return message
+
+    def error_message(self, exception, additional_info=None):
+        additional_info = html.P(f'{additional_info}') if additional_info else html.Div()
+        message = html.Div([
+            html.H5(f'Error: {self._request}'),
+            html.P('\n'.join(['Exception Raised:', f'{exception}'])),
+            additional_info,
+        ],
+            id=self.ids.generate_id(self.unique_id, 'error'),
+            style={'color': 'red'},
+        )
+        if self.call_kwargs:
+            message.children.append(dcc.Markdown(f'Call kwargs: \n {self.call_kwargs}',
+                                                 style={'white-space': 'pre'}))
+        message.children.append(html.Hr())
+        return message
+
+    @classmethod
+    def collapse_all_button(cls, unique_id, which: str):
+        button_id = {
+            'unique_id': unique_id,
+            'component': f'dc-button-{which}-visible',
+        }
+        button = dbc.Button(id=button_id, children=which)
+
+        if not cls._callback_made:
+            @callback(
+                Output(cls.ids.generate_id(MATCH, which, ALL), 'hidden'),
+                Input(button, 'n_clicks'),
+                State(cls.ids.generate_id(MATCH, which, ALL), 'hidden'),
+            )
+            def toggle_visible(clicks, current_states):
+                if clicks:
+                    return [bool(clicks % 2)] * len(current_states)
+                return [False] * len(current_states)
+
+        return button
