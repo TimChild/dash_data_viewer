@@ -1,5 +1,6 @@
 import dash
 import numbers
+import os
 import json
 from dash import html, callback, Input, Output
 import dash_bootstrap_components as dbc
@@ -14,6 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 config = get_local_config()
+ddir = config['loading']['path_to_measurement_data']
 
 """
 Plan:
@@ -31,9 +33,48 @@ to have problems
 global_persistence = 'local'
 persistence_on = True
 
+
+class DatList:
+    def __init__(self, host, user, experiment, datnums, expected_type=None):
+        self.host = host
+        self.user = user
+        self.experiment = experiment
+        self.datnums = datnums
+        self.expected_type = expected_type
+
+RANGE_OF_DATS = [
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[1, 2, 3], expected_type='first few scans'),
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[80, 148, 162], expected_type='noise'),
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[25, 26, 31, 319],
+            expected_type='ohmic check'),
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[33, 34, 48, 179, 181],
+            expected_type='pinch off'),
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[251, 252, 261],
+            expected_type='dot tune'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[717, 718, 719],
+    #         expected_type=''),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[748, 754, 1558],
+    #         expected_type='noise'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[1690, 1691, 1714, 1715],
+    #         expected_type='noise on off transition'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[738, 739, 751, 816, 818],
+    #         expected_type='pinch off'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[758, 759, 766],
+    #         expected_type='dot tune'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[796, 797, 807, 813],
+    #         expected_type='transition'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[1100, 1101, 1106, 1114],
+    #         expected_type='entropy'),
+    # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[],
+    #         expected_type=''),
+]
+
+
+
 UNIQUE_PAGE_ID = 'dat-checker'
 
 dat_selector = c.DatSelectorAIO()
+specific_dat_collapse = c.CollapseAIO(content=dat_selector, button_text='Check Specific Dat', start_open=False)
 
 logs_info = html.Div([
     html.H3('Logs'),
@@ -43,11 +84,7 @@ logs_info = html.Div([
 ])
 
 
-@callback(
-    Output('dc-div-logs-info', 'children'),
-    Input(dat_selector.store_id, 'data'),
-)
-def update_logs_area(data_path):
+def generate_dat_check_div(data_path):
     entries = []
 
     message = c.MessagesAIO(call_kwargs={'data_path': data_path}, unique_id=UNIQUE_PAGE_ID)
@@ -60,7 +97,10 @@ def update_logs_area(data_path):
     message.setup(request=f'get_dat({data_path})')
     try:
         dat = get_dat(data_path)
-        message.success_message(dat)
+        if dat is not None:
+            entries.append(message.success_message(dat))
+        else:
+            entries.append(message.warning_message(dat, f'Valid dat from {data_path}'))
     except Exception as e:
         dat = None
         entries.append(message.error_message(e))
@@ -138,8 +178,47 @@ def update_logs_area(data_path):
     return html.Div([entry for entry in entries])
 
 
+@callback(
+    Output('dc-div-logs-info', 'children'),
+    Input(specific_dat_collapse.collapse, 'is_open'),
+    Input(dat_selector.store_id, 'data'),
+)
+def update_logs_area(specific_dat, data_path):
+    if specific_dat:
+        return generate_dat_check_div(data_path)
+    else:
+        dat_results = []
+        for datlist in RANGE_OF_DATS:
+            header = html.H3(f'Host: {datlist.host}, User: {datlist.user}, Experiment: {datlist.experiment}, Type: {datlist.expected_type}')
+            dirpath = os.path.join(ddir, datlist.host, datlist.user, datlist.experiment)
+            body = []
+            for datnum in datlist.datnums:
+                path = os.path.join(dirpath, f'dat{datnum}.h5')
+                dat_entry = [
+                    html.H4(f'Dat{datnum}'),
+                    generate_dat_check_div(path),
+                ]
+                body.append(dat_entry)
+            dat_results.append(
+                html.Div([
+                    dbc.Row(dbc.Col(header)),
+                    dbc.Row([
+                        dbc.Col(b) for b in body
+                    ]),
+                ])
+            )
+
+        layout = dbc.Container([
+            dbc.Row([
+                dbc.Col(result) for result in dat_results
+            ])
+        ], style={'overflow-x': 'scroll'})
+        return layout
+
+
+
 sidebar = dbc.Container([
-    dat_selector,
+    specific_dat_collapse,
     dbc.Card([
         dbc.CardHeader('Toggle Visibility'),
         dbc.CardBody([
