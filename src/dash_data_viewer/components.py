@@ -1070,13 +1070,18 @@ class MessagesAIO:
     def setup(self, request):
         self._request = request
 
-    def success_message(self, returned, dump_json=False):
+    def success_message(self, returned, dump_json=False, markdown=False):
         # TODO: Add a collapse all successful callback
         if dump_json:
             returned = json.dumps(returned, indent=2, cls=NpEncoder)
+        if markdown:
+            returned = dcc.Markdown(str(returned), style={'white-space': 'pre-wrap'}),
+        else:
+            returned = html.P(str(returned), style={'white-space': 'pre-wrap'})
+
         message = html.Div([
             html.H5(f'Success: {self._request}'),
-            dcc.Markdown(str(returned), style={'white-space': 'pre'}),
+            returned,
             html.Hr(),
         ],
             id=self.ids.generate_id(self.unique_id, 'success'),

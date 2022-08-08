@@ -122,7 +122,14 @@ def generate_dat_check_div(data_path):
     try:
         logs = dat.Logs
         entries.append(message.success_message(dat.Logs.logs_keys))
+    except Exception as e:
+        logs = None
+        entries.append(message.error_message(e))
 
+    message.setup(request='dat.Logs.sweeplogs_string')
+    try:
+        sweeplogs_string = logs.sweeplogs_string
+        entries.append(message.success_message(sweeplogs_string))
     except Exception as e:
         logs = None
         entries.append(message.error_message(e))
