@@ -28,6 +28,16 @@ to have problems
 
 
 
+
+
+
+#### For possible use later
+  'transform': 'scale(0.5)',
+  '-ms - transform': 'scale(.5)',  # *IE9 * /
+  '-webkit-transform': 'scale(.5)',  # / *Safari and Chrome * /
+  '-o - transform': 'scale(.5)',  # / *Opera * /
+  '-moz - transform': 'scale(.5)',  # / *Firefox * /
+
 """
 
 global_persistence = 'local'
@@ -42,9 +52,12 @@ class DatList:
         self.datnums = datnums
         self.expected_type = expected_type
 
+
 RANGE_OF_DATS = [
-    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[1, 2, 3], expected_type='first few scans'),
-    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[80, 148, 162], expected_type='noise'),
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[1, 2, 3],
+            expected_type='first few scans'),
+    DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[80, 148, 162],
+            expected_type='noise'),
     DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[25, 26, 31, 319],
             expected_type='ohmic check'),
     DatList(host='qdev-xld', user='Tim', experiment='202207_InstabilityTest_Bale_Dendi', datnums=[33, 34, 48, 179, 181],
@@ -68,8 +81,6 @@ RANGE_OF_DATS = [
     # DatList(host='qdev-xld', user='Owen', experiment='GaAs/non_local_entropy_febmar21', datnums=[],
     #         expected_type=''),
 ]
-
-
 
 UNIQUE_PAGE_ID = 'dat-checker'
 
@@ -189,32 +200,65 @@ def update_logs_area(specific_dat, data_path):
     else:
         dat_results = []
         for datlist in RANGE_OF_DATS:
-            header = html.H3(f'Host: {datlist.host}, User: {datlist.user}, Experiment: {datlist.experiment}, Type: {datlist.expected_type}')
+            header = html.H3(
+                f'Host: {datlist.host}\nUser: {datlist.user}\nExperiment: {datlist.experiment}\nType: {datlist.expected_type}',
+                style={'white-space': 'pre-wrap'})
             dirpath = os.path.join(ddir, datlist.host, datlist.user, datlist.experiment)
             body = []
             for datnum in datlist.datnums:
                 path = os.path.join(dirpath, f'dat{datnum}.h5')
-                dat_entry = [
-                    html.H4(f'Dat{datnum}'),
-                    generate_dat_check_div(path),
-                ]
+                dat_entry = dbc.Card([
+                    dbc.CardHeader(
+                        html.H4(f'Dat{datnum}:'),
+                    ),
+                    dbc.CardBody(
+                        generate_dat_check_div(path)
+                    ),
+                ])
                 body.append(dat_entry)
             dat_results.append(
-                html.Div([
-                    dbc.Row(dbc.Col(header)),
-                    dbc.Row([
-                        dbc.Col(b) for b in body
+                dbc.Container([
+                    dbc.Card([
+                        dbc.CardHeader([
+                            header
+                        ]),
+                        dbc.CardBody([
+                            dbc.Container([
+                                dbc.Container(b, style={
+                                    'display': 'flex',
+                                    'transform': 'rotateX(180deg)'
+                                }) for b in body],
+                                style={
+                                    'display': 'flex',
+                                    'overflow-x': 'scroll',
+                                    'transform': 'rotateX(180deg)',
+                                }),
+                        ]),
                     ]),
                 ])
             )
+        layout = dbc.Container(
+            # html.Div(
+            html.Div(
+                [
+                    dbc.Container(result, style={
+                        'display': 'flex',
+                        # 'transform': 'scale(0.5)',
+                    }
+                                  ) for result in dat_results],
+                style={
+                    'transform': 'rotateX(180deg)',
+                    'display': 'flex',
+                }
+            ),
+            style={'transform': 'rotateX(180deg)',
+                   'overflow-x': 'scroll',
+                   'display': 'flex'}
+            # ),
+        )
 
-        layout = dbc.Container([
-            dbc.Row([
-                dbc.Col(result) for result in dat_results
-            ])
-        ], style={'overflow-x': 'scroll'})
+        # 'transform': 'rotateX(180deg)',
         return layout
-
 
 
 sidebar = dbc.Container([
