@@ -309,6 +309,7 @@ class ExperimentFileSelectorAIO(html.Div):
                     return [dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts)]
             else:  # Don't know what options to show yet
                 return []
+
         # If there are existing dropdowns, decide if some need to be removed or added
         elif values:
             for i, v in enumerate(values):
@@ -316,6 +317,20 @@ class ExperimentFileSelectorAIO(html.Div):
                     new = existing[:i + 1]  # Remove dropdowns after first empty
                     return new
 
+            # Check that the existing options still make sense in case a value has been changed higher up
+            path = os.path.join(ddir, host, user)
+            for i, (v, dd) in enumerate(zip(values, existing)):
+                opts = os.listdir(path)
+                existing_opts = dd['props']['options']
+                if set(opts) != set(existing_opts):
+                    new = existing[:i]
+                    opts = sorted(opts)
+                    new.append(dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, level=i+1), options=opts))
+                    return new
+                else:
+                    path = os.path.join(path, v)  # Next loop through will see the selected path
+
+            # If last value points to a directory, add another dropdown
             last_val = values[-1]
             if last_val:  # If last dropdown is filled, add another (unless it isn't a directory)
                 depth = len(existing)
