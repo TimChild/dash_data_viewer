@@ -158,7 +158,7 @@ def update_logs_area(data_path):
 
         dacs = logs.dacs
         if dacs is not None and isinstance(dacs, dict):
-            entries.append(dcc.Markdown(json.dumps(dacs, indent=2)))
+            entries.append(dcc.Markdown(json.dumps(dacs, indent=2, cls=NpEncoder)))
 
         temperatures = logs.temperatures
         if temperatures is not None:
@@ -202,7 +202,7 @@ def generate_all_data_graphs(dat_path, avoid_selected):
                         fig.add_trace(go.Scatter(x=x, y=data))
                         figs.append(fig)
                     elif data.ndim == 2:
-                        y = y if y is not None and y.shape == data.shaspe[-2] else np.linspace(0, data.shape[-2], data.shape[-2])
+                        y = y if y is not None and y.shape == data.shape[-2] else np.linspace(0, data.shape[-2], data.shape[-2])
                         data, x, y = U.resample_data(data, x=x, y=y, max_num_pnts=500, resample_method='bin')
                         fig.add_trace(go.Heatmap(x=x, y=y, z=data))
                         fig.update_yaxes(title_text=dat.Logs.y_label)
