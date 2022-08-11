@@ -11,7 +11,7 @@ import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
-from dat_analysis.dat.new_dat_util import get_local_config
+from dat_analysis.dat.dat_util import get_local_config
 from dat_analysis.analysis_tools.transition import CenteredAveragingProcess, TransitionFitProcess
 from dat_analysis.dat.dat_hdf import DatHDF
 import dat_analysis.useful_functions as U
@@ -175,12 +175,15 @@ def update_per_dat_graphs(data_paths, data_key, open):
 
     def data_with_centers_fig(x, y, data_2d, centers):
         fig = go.Figure()
+        data_2d, x, y = U.resample_data(data_2d, x=x, y=y, max_num_pnts=500)
         fig.add_trace(go.Heatmap(x=x, y=y, z=data_2d))
         fig.add_trace(go.Scatter(x=centers, y=y, mode='markers', marker=dict(color='white')))
         return fig
 
     def data_with_stdev_fig(x, data, stdev):
         fig = go.Figure()
+        data, x = U.resample_data(data, x=x, max_num_pnts=500)
+        stdev = U.resample_data(stdev, max_num_pnts=500, resample_method='downsample')
         fig.add_trace(go.Scatter(x=x, y=data, error_y=dict(type='data', array=stdev, visible=True)))
         return fig
 

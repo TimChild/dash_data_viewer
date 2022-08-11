@@ -8,7 +8,7 @@ import dash_bootstrap_components as dbc
 import dash_data_viewer.components as c
 from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
-from dat_analysis.dat.new_dat_util import get_local_config, NpEncoder
+from dat_analysis.dat.dat_util import get_local_config, NpEncoder
 
 import logging
 

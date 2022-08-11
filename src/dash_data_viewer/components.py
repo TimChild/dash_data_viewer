@@ -20,7 +20,7 @@ import time
 from deprecation import deprecated
 
 from dat_analysis import useful_functions as u, get_local_config
-from dat_analysis.dat.new_dat_util import NpEncoder
+from dat_analysis.dat.dat_util import NpEncoder
 from .layout_util import label_component, vertical_label
 
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
@@ -227,17 +227,17 @@ class ExperimentFileSelectorAIO(html.Div):
         exp_dds = None
         if host and host in host_options:
             host_val = host
-            user_opts = os.listdir(os.path.join(ddir, host))
+            user_opts = sorted(os.listdir(os.path.join(ddir, host)))
         if user and user_opts and user in user_opts:
             user_val = user
-            experiment_opts = os.listdir(os.path.join(ddir, host, user))
+            experiment_opts = sorted(os.listdir(os.path.join(ddir, host, user)))
         if experiment and experiment_opts:
             experiment = os.path.normpath(experiment)
             if len(experiment.split(
                     os.sep)) == 1:  # Only do this if experiment is a single folder (not e.g. 'top/subdir')
                 if experiment in experiment_opts:
                     experiment_val = experiment
-                    next_opts = os.listdir(os.path.join(ddir, host, user, experiment))
+                    next_opts = sorted(os.listdir(os.path.join(ddir, host, user, experiment)))
                     exp_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0),
                                           options=experiment_opts, value=experiment_val)
                     next_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 1), options=next_opts)
@@ -909,7 +909,7 @@ class GraphAIO(html.Div):
             update_fig_store,
             dcc.Download(id=self.ids.generic(aio_id, 'download')),
             options_popover,
-            fig,
+            dcc.Loading(fig, type='default'),
             html.Div(children=options_button, style={'position': 'absolute', 'top': 0, 'left': 0}),
         ], style={'position': 'relative'})
 

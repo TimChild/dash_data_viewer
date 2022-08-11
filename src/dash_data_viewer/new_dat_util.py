@@ -26,6 +26,7 @@ def get_dat_from_exp_path(data_path, overwrite=False):
         except Exception as e:
             dat = None
             logger.warning(f'Failed to load dat at {data_path}. \nRaised: \n{e}')
+            raise e  # TODO: Remove, for debugging only
     # if data_path and os.path.exists(data_path):
     #     try:
     #         if os.path.exists(save_path_from_exp_path(data_path)) and not overwrite:  # Already exists, so no need to lock while loading

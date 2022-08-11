@@ -11,8 +11,7 @@ import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
-from dat_analysis.dat.new_dat_util import get_local_config, NpEncoder
-from dat_analysis.hdf_file_handler import GlobalLock
+from dat_analysis.dat.dat_util import get_local_config, NpEncoder
 import dat_analysis.useful_functions as U
 import tempfile
 
@@ -100,6 +99,39 @@ graphs = html.Div([
 ])
 
 
+def fig_from_dat(dat, data_key):
+    fig = go.Figure()
+    data = dat.Data.get_data(data_key)
+    x = dat.Data.x
+    y = dat.Data.y
+
+    fig.update_layout(
+        title=f'Dat{dat.datnum}: {data_key}',
+    )
+    if data is not None and data.ndim > 0:
+        if x is not None and x.shape[0] == data.shape[-1]:
+            fig.update_xaxes(title_text=dat.Logs.x_label)
+        else:
+            x = np.linspace(0, data.shape[-1], data.shape[-1])
+            fig.update_xaxes(title_text='data index')
+
+        if data.ndim == 1:
+            data, x = U.resample_data(data, x=x, max_num_pnts=500, resample_method='bin')
+            fig.add_trace(go.Scatter(x=x, y=data))
+        elif data.ndim == 2:
+            if y is not None and y.shape[0] == data.shape[-2]:
+                fig.update_yaxes(title_text=dat.Logs.y_label)
+            else:
+                y = np.linspace(0, data.shape[-2], data.shape[-2])
+                fig.update_yaxes(title_text='data index')
+            data, x, y = U.resample_data(data, x=x, y=y, max_num_pnts=500, resample_method='bin')
+            fig.update_yaxes(title_text=dat.Logs.y_label)
+            fig.add_trace(go.Heatmap(x=x, y=y, z=data))
+        else:
+            pass
+    return fig
+
+
 @callback(
     Output(g1.update_figure_store_id, 'data'),
     # Input('store-data-path', 'data'),
@@ -109,31 +141,7 @@ graphs = html.Div([
 def update_graph(data_path, data_key) -> go.Figure():
     dat = get_dat_from_exp_path(data_path)
     if dat:
-        fig = go.Figure()
-        data = dat.Data.get_data(data_key)
-        x = dat.Data.x
-        y = dat.Data.y
-
-        fig.update_layout(
-            title=f'Dat{dat.datnum}: {data_key}',
-        )
-        fig.update_xaxes(title_text=dat.Logs.x_label)
-
-        if data is not None and data.ndim > 0:
-            x = x if x is not None else np.linspace(0, data.shape[-1], data.shape[-1])
-
-            if data.ndim == 1:
-                data, x = U.resample_data(data, x=x, max_num_pnts=500, resample_method='bin')
-                fig.add_trace(go.Scatter(x=x, y=data))
-            elif data.ndim == 2:
-                y = y if y is not None else np.linspace(0, data.shape[-2], data.shape[-2])
-                data, x, y= U.resample_data(data, x=x, y=y, max_num_pnts=500, resample_method='bin')
-                fig.update_yaxes(title_text=dat.Logs.y_label)
-                fig.add_trace(go.Heatmap(x=x, y=y, z=data))
-            else:
-                pass
-
-        return fig
+        return fig_from_dat(dat, data_key)
     else:
         return c.blank_figure()
 
@@ -185,30 +193,10 @@ def generate_all_data_graphs(dat_path, avoid_selected):
     dat = get_dat_from_exp_path(dat_path)
     figs = []
     if dat:
-        x = dat.Data.x
-        y = dat.Data.y
         for k in dat.Data.data_keys:
-            if k != avoid_selected:
-                fig = go.Figure()
-                data = dat.Data.get_data(k)
-                if data is not None and data.ndim > 0:
-                    x = x if x is not None and x.shape == data.shape[-1] else np.linspace(0, data.shape[-1], data.shape[-1])
-                    fig.update_layout(
-                        title=f'Dat{dat.datnum}: {k}',
-                    )
-                    fig.update_xaxes(title_text=dat.Logs.x_label)
-                    if data.ndim == 1:
-                        data, x = U.resample_data(data, x=x, max_num_pnts=500, resample_method='bin')
-                        fig.add_trace(go.Scatter(x=x, y=data))
-                        figs.append(fig)
-                    elif data.ndim == 2:
-                        y = y if y is not None and y.shape == data.shape[-2] else np.linspace(0, data.shape[-2], data.shape[-2])
-                        data, x, y = U.resample_data(data, x=x, y=y, max_num_pnts=500, resample_method='bin')
-                        fig.add_trace(go.Heatmap(x=x, y=y, z=data))
-                        fig.update_yaxes(title_text=dat.Logs.y_label)
-                        figs.append(fig)
-                    else:
-                        pass
+            if k not in avoid_selected:
+                figs.append(fig_from_dat(dat, k))
+
     dash_figs = [c.GraphAIO(figure=fig) for fig in figs]
     if not dash_figs:
         dash_figs = html.Div('No other data to display')
