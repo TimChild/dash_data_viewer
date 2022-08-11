@@ -9,11 +9,11 @@ import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
-from dash_data_viewer.new_dat_util import get_dat
+from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
-from dat_analysis.new_dat.new_dat_util import get_local_config
+from dat_analysis.dat.new_dat_util import get_local_config
 from dat_analysis.analysis_tools.transition import CenteredAveragingProcess, TransitionFitProcess
-from dat_analysis.new_dat.dat_hdf import DatHDF
+from dat_analysis.dat.dat_hdf import DatHDF
 import dat_analysis.useful_functions as U
 
 import logging
@@ -59,7 +59,7 @@ def update_data_options(dat_paths, current_value):
     options = None
     value = None
     for path in dat_paths:
-        dat = get_dat(path)
+        dat = get_dat_from_exp_path(path)
         if dat:
             if options is None:
                 options = dat.Data.data_keys
@@ -95,7 +95,7 @@ def update_thetas_graph(data_paths, data_key) -> go.Figure():
     fig = go.Figure()
     for path in data_paths:
         logger.debug(f'Adding dat {path} to thetas')
-        dat = get_dat(path)
+        dat = get_dat_from_exp_path(path)
         if dat:
             averaging = CenteredAveragingProcess()
             averaging.set_inputs(
@@ -188,7 +188,7 @@ def update_per_dat_graphs(data_paths, data_key, open):
         return []
     all_entries = []
     for path in data_paths:
-        dat = get_dat(path)
+        dat = get_dat_from_exp_path(path)
         if dat:
             figs = []
             averaging = get_averaging(dat, data_key=data_key)

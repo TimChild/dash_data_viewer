@@ -20,7 +20,7 @@ import time
 from deprecation import deprecated
 
 from dat_analysis import useful_functions as u, get_local_config
-from dat_analysis.new_dat.new_dat_util import NpEncoder
+from dat_analysis.dat.new_dat_util import NpEncoder
 from .layout_util import label_component, vertical_label
 
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')

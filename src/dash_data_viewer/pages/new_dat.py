@@ -9,9 +9,9 @@ import plotly.graph_objects as go
 
 import dash_data_viewer.components as c
 from dash_data_viewer.layout_util import label_component
-from dash_data_viewer.new_dat_util import get_dat
+from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
-from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
+from dat_analysis.dat.new_dat_util import get_local_config, NpEncoder
 from dat_analysis.hdf_file_handler import GlobalLock
 import dat_analysis.useful_functions as U
 import tempfile
@@ -82,7 +82,7 @@ data_options = label_component(
     State('dd-data-names', 'value'),
 )
 def update_data_options(dat_path, current_value):
-    dat = get_dat(dat_path)
+    dat = get_dat_from_exp_path(dat_path)
     options = []
     value = None
     if dat:
@@ -107,7 +107,7 @@ graphs = html.Div([
     Input('dd-data-names', 'value'),
 )
 def update_graph(data_path, data_key) -> go.Figure():
-    dat = get_dat(data_path)
+    dat = get_dat_from_exp_path(data_path)
     if dat:
         fig = go.Figure()
         data = dat.Data.get_data(data_key)
@@ -150,7 +150,7 @@ logs_info = html.Div([
     Input(dat_selector.store_id, 'data'),
 )
 def update_logs_area(data_path):
-    dat = get_dat(data_path)
+    dat = get_dat_from_exp_path(data_path)
     entries = []
     if dat:
         logs = dat.Logs
@@ -182,7 +182,7 @@ all_graphs = html.Div(id='div-all-graphs')
     Input('dd-data-names', 'value'),
 )
 def generate_all_data_graphs(dat_path, avoid_selected):
-    dat = get_dat(dat_path)
+    dat = get_dat_from_exp_path(dat_path)
     figs = []
     if dat:
         x = dat.Data.x

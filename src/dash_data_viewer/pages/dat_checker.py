@@ -2,13 +2,13 @@ import dash
 import numbers
 import os
 import json
-from dash import html, callback, Input, Output
+from dash import html, callback, Input, Output, ctx
 import dash_bootstrap_components as dbc
 
 import dash_data_viewer.components as c
-from dash_data_viewer.new_dat_util import get_dat
+from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
-from dat_analysis.new_dat.new_dat_util import get_local_config, NpEncoder
+from dat_analysis.dat.new_dat_util import get_local_config, NpEncoder
 
 import logging
 
@@ -85,17 +85,11 @@ RANGE_OF_DATS = [
 UNIQUE_PAGE_ID = 'dat-checker'
 
 dat_selector = c.DatSelectorAIO()
-specific_dat_collapse = c.CollapseAIO(content=dat_selector, button_text='Check Specific Dat', start_open=False)
-
-logs_info = html.Div([
-    html.H3('Logs'),
-    c.CollapseAIO(content=html.Div(id='dc-div-logs-info', children='Not yet updated'), button_text='Logs',
-                  start_open=True),
-    html.Hr(),
-])
+overwrite_dat_button = dbc.Button('Fully reset dat', id='dc-but-reset', color='danger')
+specific_dat_collapse = c.CollapseAIO(content=html.Div([dat_selector, overwrite_dat_button]), button_text='Check Specific Dat', start_open=True)
 
 
-def generate_dat_check_div(data_path):
+def generate_dat_check_div(data_path, overwrite=False):
     entries = []
 
     message = c.MessagesAIO(call_kwargs={'data_path': data_path}, unique_id=UNIQUE_PAGE_ID)
@@ -107,7 +101,7 @@ def generate_dat_check_div(data_path):
 
     message.setup(request=f'get_dat({data_path})')
     try:
-        dat = get_dat(data_path)
+        dat = get_dat_from_exp_path(data_path, overwrite=overwrite)
         if dat is not None:
             entries.append(message.success_message(dat))
         else:
@@ -200,10 +194,12 @@ def generate_dat_check_div(data_path):
     Output('dc-div-logs-info', 'children'),
     Input(specific_dat_collapse.collapse, 'is_open'),
     Input(dat_selector.store_id, 'data'),
+    Input(overwrite_dat_button, 'n_clicks'),
 )
-def update_logs_area(specific_dat, data_path):
+def update_logs_area(specific_dat, data_path, overwrite_clicks):
     if specific_dat:
-        return generate_dat_check_div(data_path)
+        overwrite = True if ctx.triggered_id == 'dc-but-reset' else False
+        return generate_dat_check_div(data_path, overwrite=overwrite)
     else:
         dat_results = []
         for datlist in RANGE_OF_DATS:
@@ -268,8 +264,16 @@ def update_logs_area(specific_dat, data_path):
         return layout
 
 
+logs_info = html.Div([
+    html.H3('Logs'),
+    c.CollapseAIO(content=html.Div(id='dc-div-logs-info', children='Not yet updated'), button_text='Logs',
+                  start_open=True),
+    html.Hr(),
+])
+
 sidebar = dbc.Container([
     specific_dat_collapse,
+
     dbc.Card([
         dbc.CardHeader('Toggle Visibility'),
         dbc.CardBody([

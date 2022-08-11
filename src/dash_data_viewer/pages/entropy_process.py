@@ -12,11 +12,10 @@ import dash_data_viewer.components as c
 from dash_data_viewer.process_dash_extensions import ProcessInterface, NOT_SET, load, standard_input_layout, standard_output_layout
 from dash_data_viewer.layout_util import label_component
 from dash_data_viewer.dash_hdf import DashHDF, HdfId
-from dash_data_viewer.new_dat_util import get_dat
+from dash_data_viewer.new_dat_util import get_dat_from_exp_path
 
 from dat_analysis.analysis_tools.entropy import EntropySignalProcess
 from dat_analysis.analysis_tools.new_procedures import PlottableData, DataPlotter
-from dat_analysis.analysis_tools.general_fitting import calculate_fit, FitInfo
 from dat_analysis.analysis_tools.square_wave import SeparateSquareProcess
 from dat_analysis.analysis_tools.transition import CenteredAveragingProcess
 from dat_analysis.plotting.plotly.dat_plotting import OneD
@@ -86,10 +85,9 @@ class SeparateProcessInterface(ProcessInterface):
             delay = delay if delay else 0
 
             if dashd_id:
-                dashd = DashHDF(dashd_id, mode='r')
-                with dashd:
-                    measure_freq = dashd.get_info('measure_freq')
-                    samples_per_setpoint = dashd.get_info('samples_per_setpoint')
+                dashd = DashHDF(dashd_id)
+                measure_freq = dashd.get_info('measure_freq')
+                samples_per_setpoint = dashd.get_info('samples_per_setpoint')
 
                 delay_index = round(delay * measure_freq)
                 if delay_index > samples_per_setpoint:
@@ -127,10 +125,9 @@ class SeparateProcessInterface(ProcessInterface):
         def update_output_store(dashd_id, inputs: dict):
             if dashd_id and inputs and inputs.get('valid', False):
                 # Get data from previous processing
-                dashd = DashHDF(dashd_id, 'r')
-                with dashd:
-                    i_sense = dashd.get_data('i_sense', subgroup=None)
-                    x = dashd.get_data('x', subgroup=None)
+                dashd = DashHDF(dashd_id)
+                i_sense = dashd.get_data('i_sense', subgroup=None)
+                x = dashd.get_data('x', subgroup=None)
 
                 # Do the Processing
                 process = SeparateSquareProcess()
@@ -144,8 +141,8 @@ class SeparateProcessInterface(ProcessInterface):
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
                 dashd.mode = 'r+'
-                with dashd:
-                    process_group = dashd.require_group('/Process')  # First Process, so make sure Process Group exists
+                with dashd as f:
+                    process_group = f.require_group('/Process')  # First Process, so make sure Process Group exists
 
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
@@ -276,9 +273,9 @@ class EntropySignalInterface(ProcessInterface):
                 process.process()
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
-                dashd = DashHDF(dashd_id, mode='r+')
-                with dashd:
-                    process_group = dashd.require_group('/Process')  # First Process, so make sure Process Group exists
+                dashd = DashHDF(dashd_id)
+                with dashd as f:
+                    process_group = f.require_group('/Process')  # First Process, so make sure Process Group exists
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
 
@@ -457,9 +454,9 @@ class CenteredEntropyAveragingInterface(ProcessInterface):
                 out = process.process()
 
                 # Rather than pass big datasets etc, save the Process and return the location to load it
-                dashd = DashHDF(dashd_id, 'r+')
-                with dashd:
-                    process_group = dashd.require_group('/Process')
+                dashd = DashHDF(dashd_id)
+                with dashd as f:
+                    process_group = f.require_group('/Process')
                     save_group = process.save_progress(process_group, name=None)  # Save at top level with default name
                     save_path = save_group.name
                 logger.debug(f'Updating Center and average store')
@@ -571,7 +568,7 @@ external_data_path_store = dcc.Store(id='entropy-store-from-external')
 
 
 @callback(
-    Output(external_data_path_store.id, 'data'),
+    Output(external_data_path_store, 'data'),
     Input(dat_selector.store_id, 'data'),
 )
 def get_external_data_and_info(dat_filepath):
@@ -586,20 +583,19 @@ def get_external_data_and_info(dat_filepath):
         data_path = None
 
     if data_path:
-        dat = get_dat(data_path)
+        dat = get_dat_from_exp_path(data_path)
         hdf_id = HdfId(page='entropy-process', number=dat.datnum)
-        dashd = DashHDF(hdf_id, mode='r+')  # TODO: Maybe want to use 'w' mode to overwrite previous?
+        dashd = DashHDF(hdf_id)  # TODO: Maybe want to use 'w' mode to overwrite previous?
         subgroup = None  # In case I later want to save this data in e.g. a "main" group
 
-        with dashd:
-            # Any Data that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
-            dashd.save_data(dat.Data.get_data('standard/i_sense', None), 'i_sense', subgroup=subgroup)
-            dashd.save_data(dat.Data.x, 'x', subgroup=subgroup)
+        # Any Data that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
+        dashd.save_data(dat.Data.get_data('standard/i_sense', None), 'i_sense', subgroup=subgroup)
+        dashd.save_data(dat.Data.x, 'x', subgroup=subgroup)
 
-            # Any Info that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
-            dashd.save_info(dat.Logs.measure_freq, 'measure_freq', subgroup=subgroup)
-            fd_logs = dat.Logs.get_fastdac(1)
-            dashd.save_info(fd_logs.AWG['waveLen']/4, 'samples_per_setpoint', subgroup=subgroup)  # fd_logs.AWG['info']['wave_len']/4
+        # Any Info that will likely be used by a later process (if it is unlikely to be used, set it in a relevant callback)
+        dashd.save_info(dat.Logs.measure_freq, 'measure_freq', subgroup=subgroup)
+        fd_logs = dat.Logs.get_fastdac(1)
+        dashd.save_info(fd_logs.AWG['waveLen']/4, 'samples_per_setpoint', subgroup=subgroup)  # fd_logs.AWG['info']['wave_len']/4
         return dashd.id
     else:
         return None
