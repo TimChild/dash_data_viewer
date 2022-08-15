@@ -888,7 +888,7 @@ class GraphAIO(html.Div):
                         )
 
         download_buttons = dbc.ButtonGroup([
-            dbc.Button(children=name, id=self.ids.button(aio_id, name)) for name in ['HTML', 'Jpeg', 'SVG', 'Data']
+            dbc.Button(children=name, id=self.ids.button(aio_id, name)) for name in ['HTML', 'Jpeg', 'SVG', 'Data', 'Igor']
         ])
 
         options_layout = dbc.Form([
@@ -986,6 +986,12 @@ class GraphAIO(html.Div):
                     time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
                     u.fig_to_data_json(fig, filepath)
                     return dcc.send_file(filepath, f'{download_name}.json', type='application/json')
+            elif selected == 'igor':
+                filepath = os.path.join(tempdir, 'datadownload.itx')
+                with global_lock:  # TODO: Send a file object directly rather than actually writing to disk first
+                    time.sleep(0.1)  # Here so that any previous one has time to be sent before being overwritten
+                    u.fig_to_igor_itx(fig, filepath)
+                    return dcc.send_file(filepath, f'{download_name}.itx', type='application/json')
         return dash.no_update
 
 
