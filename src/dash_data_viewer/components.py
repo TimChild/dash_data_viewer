@@ -20,7 +20,7 @@ import time
 from deprecation import deprecated
 
 from dat_analysis import useful_functions as u, get_local_config
-from dat_analysis.dat.dat_util import NpEncoder
+from dat_analysis.dat.dat_util import NpEncoder, get_full_path
 from .layout_util import label_component, vertical_label
 
 tempdir = os.path.join(tempfile.gettempdir(), 'dash_viewer/')
@@ -216,7 +216,7 @@ class ExperimentFileSelectorAIO(html.Div):
         super().__init__(children=[layout])  # html.Div contains layout
 
     def layout(self, aio_id):
-        host_options = [k for k in os.listdir(ddir) if os.path.isdir(os.path.join(ddir, k))]
+        host_options = [k for k in os.listdir(ddir)]
 
         # Get some defaults from config.toml if they are set
         host = config['loading'].get('default_host_name', None)
@@ -227,17 +227,17 @@ class ExperimentFileSelectorAIO(html.Div):
         exp_dds = None
         if host and host in host_options:
             host_val = host
-            user_opts = sorted(os.listdir(os.path.join(ddir, host)))
+            user_opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host))))
         if user and user_opts and user in user_opts:
             user_val = user
-            experiment_opts = sorted(os.listdir(os.path.join(ddir, host, user)))
+            experiment_opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host, user))))
         if experiment and experiment_opts:
             experiment = os.path.normpath(experiment)
             if len(experiment.split(
                     os.sep)) == 1:  # Only do this if experiment is a single folder (not e.g. 'top/subdir')
                 if experiment in experiment_opts:
                     experiment_val = experiment
-                    next_opts = sorted(os.listdir(os.path.join(ddir, host, user, experiment)))
+                    next_opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host, user, experiment))))
                     exp_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0),
                                           options=experiment_opts, value=experiment_val)
                     next_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 1), options=next_opts)
@@ -269,7 +269,7 @@ class ExperimentFileSelectorAIO(html.Div):
     def create_dropdowns_for_user(host):
         opts = []
         if host:
-            opts = os.listdir(os.path.join(ddir, host))
+            opts = os.listdir(get_full_path(os.path.join(ddir, host)))
         return opts
 
     @staticmethod
@@ -290,22 +290,22 @@ class ExperimentFileSelectorAIO(html.Div):
         if any([v == ctx.triggered_id.get('key', None) if ctx.triggered_id else False for v in
                 ['host', 'user']]) or not existing:
             if host and user:
-                opts = sorted(os.listdir(os.path.join(ddir, host, user)))
+                opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host, user))))
                 if not existing and stored_values:  # Page reload
                     stored_values = [s if s else '' for s in stored_values]
-                    if os.path.exists(os.path.join(ddir, host, user, *stored_values)):
+                    if os.path.exists(get_full_path(os.path.join(ddir, host, user, *stored_values))):
                         dds = []
-                        p = os.path.join(ddir, host, user)
+                        p = get_full_path(os.path.join(ddir, host, user))
                         for v in stored_values:
                             opts = sorted(os.listdir(p))
                             dds.append(
                                 dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts,
                                              value=v))
-                            p = os.path.join(p, v)
+                            p = get_full_path(os.path.join(p, v))
                         return dds
                     else:
                         return [dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts)]
-                elif not existing or not os.path.exists(os.path.join(host, user, *values)):  # Make first set of options
+                elif not existing or not os.path.exists(get_full_path(os.path.join(host, user, *values))):  # Make first set of options
                     return [dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0), options=opts)]
             else:  # Don't know what options to show yet
                 return []
@@ -318,7 +318,7 @@ class ExperimentFileSelectorAIO(html.Div):
                     return new
 
             # Check that the existing options still make sense in case a value has been changed higher up
-            path = os.path.join(ddir, host, user)
+            path = get_full_path(os.path.join(ddir, host, user))
             for i, (v, dd) in enumerate(zip(values, existing)):
                 opts = os.listdir(path)
                 existing_opts = dd['props']['options']
@@ -328,14 +328,14 @@ class ExperimentFileSelectorAIO(html.Div):
                     new.append(dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, level=i+1), options=opts))
                     return new
                 else:
-                    path = os.path.join(path, v)  # Next loop through will see the selected path
+                    path = get_full_path(os.path.join(path, v))  # Next loop through will see the selected path
 
             # If last value points to a directory, add another dropdown
             last_val = values[-1]
             if last_val:  # If last dropdown is filled, add another (unless it isn't a directory)
                 depth = len(existing)
                 if os.path.isdir(os.path.join(ddir, host, user, *values)):
-                    opts = sorted(os.listdir(os.path.join(ddir, host, user, *values)))
+                    opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host, user, *values))))
                     existing.append(
                         dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, depth), options=opts))
                     return existing
@@ -352,7 +352,7 @@ class ExperimentFileSelectorAIO(html.Div):
         host = host if host else ''
         user = user if user else ''
         exp_path = [p if p else '' for p in exp_path]
-        return os.path.join(ddir, host, user, *exp_path)
+        return get_full_path(os.path.join(ddir, host, user, *exp_path))
 
     @staticmethod
     @callback(
@@ -456,7 +456,7 @@ class DatSelectorAIO(html.Div):
         if filepath and os.path.exists(filepath):
             if os.path.isdir(filepath):
                 datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
-                data_path = os.path.join(filepath, datfile)
+                data_path = get_full_path(os.path.join(filepath, datfile))
             else:
                 data_path = filepath
 
