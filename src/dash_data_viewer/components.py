@@ -216,7 +216,7 @@ class ExperimentFileSelectorAIO(html.Div):
         super().__init__(children=[layout])  # html.Div contains layout
 
     def layout(self, aio_id):
-        host_options = [k for k in os.listdir(ddir)]
+        host_options = [k[:-4] if k.endswith('.lnk') else k for k in os.listdir(ddir)]
 
         # Get some defaults from config.toml if they are set
         host = config['loading'].get('default_host_name', None)
@@ -228,9 +228,11 @@ class ExperimentFileSelectorAIO(html.Div):
         if host and host in host_options:
             host_val = host
             user_opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host))))
+            user_opts = [k[:-4] if k.endswith('.lnk') else k for k in user_opts]
         if user and user_opts and user in user_opts:
             user_val = user
             experiment_opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host, user))))
+            experiment_opts = [k[:-4] if k.endswith('.lnk') else k for k in experiment_opts]
         if experiment and experiment_opts:
             experiment = os.path.normpath(experiment)
             if len(experiment.split(
@@ -238,6 +240,7 @@ class ExperimentFileSelectorAIO(html.Div):
                 if experiment in experiment_opts:
                     experiment_val = experiment
                     next_opts = sorted(os.listdir(get_full_path(os.path.join(ddir, host, user, experiment))))
+                    next_opts = [k[:-4] if k.endswith('.lnk') else k for k in next_opts]
                     exp_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 0),
                                           options=experiment_opts, value=experiment_val)
                     next_dd = dcc.Dropdown(id=ExperimentFileSelectorAIO.ids.file_dropdown(aio_id, 1), options=next_opts)
