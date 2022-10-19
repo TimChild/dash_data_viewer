@@ -1,6 +1,7 @@
 import dash
 import json
 import os
+import pandas as pd
 from dash import html, dcc, callback, Input, Output, State
 import dash_bootstrap_components as dbc
 
@@ -23,9 +24,6 @@ config = get_local_config()
 """
 Plan:
 Overall aim
-- Select Host, User, Experiment (/possibly deeper) name
-- Select Dat num (from available)
-    - Or range of dats etc
 - See some Logs info automatically (FastDAC settings, Temperatures, etc)
 - See data plotted
     - 1D with x_axis
@@ -41,30 +39,35 @@ global_persistence = 'session'
 persistence_on = True
 
 
-# dat_selector = c.ExperimentFileSelector()
-# data_path_store = dcc.Store(id='store-data-path', storage_type='session')
-#
-#
-# datnum = c.Input_(id='inp-datnum', type='number', value=0, persistence_type=global_persistence, persistence=persistence_on)
-# raw_tog = dcc.RadioItems(id='tog-raw', persistence=persistence_on, persistence_type=global_persistence)
-#
-#
-# @callback(
-#     Output('store-data-path', 'data'),
-#     Input(dat_selector.store_id, 'data'),
-#     Input(datnum.id, 'value'),
-#     Input(raw_tog.id, 'value'),
-# )
-# def generate_dat_path(filepath, datnum, raw):
-#     datnum = datnum if datnum else 0
-#     data_path = None
-#     if filepath and os.path.exists(filepath):
-#         if os.path.isdir(filepath):
-#             datfile = f'dat{datnum}_RAW.h5' if raw else f'dat{datnum}.h5'
-#             data_path = os.path.join(filepath, datfile)
-#         else:
-#             data_path = filepath
-#     return data_path
+def dacs_to_component(dac_dict: dict):
+    table_rows = []
+    for k, v in dac_dict.items():
+        table_rows.append(
+            html.Tr([html.Th(k), html.Td(f'{v:.2f}')])
+        )
+    table_header = [html.Thead([html.Th('DAC'), html.Th('Value /mV')])]
+    table_body = [html.Tbody(table_rows)]
+    return dbc.Table(table_header+table_body, bordered=True, size='sm')
+
+
+def temps_to_component(temp_dict: dict):
+    table_rows = []
+    keys = {
+        'fiftyk': '50K',
+        'fourk': '4K',
+        'magnet': 'Magnet',
+        'still': 'Still',
+        'mc': 'MC',
+    }
+    for k, v in temp_dict.items():
+        val = f'{v:.1f} K' if v > 1 else f'{v*1000:.0f} mK'
+        table_rows.append(
+            html.Tr([html.Th(keys[k]), html.Td(val)])
+        )
+    table_header = [html.Thead([html.Th('Plate'), html.Th('Temperature')])]
+    table_body = [html.Tbody(table_rows)]
+    return dbc.Table(table_header+table_body, bordered=True, size='sm')
+
 
 dat_selector = c.DatSelectorAIO()
 
@@ -166,16 +169,23 @@ def update_logs_area(data_path):
 
         dacs = logs.dacs
         if dacs is not None and isinstance(dacs, dict):
-            entries.append(dcc.Markdown(json.dumps(dacs, indent=2, cls=NpEncoder)))
+            try:
+                entries.append(dacs_to_component(dacs))
+                # entries.append(dcc.Markdown(json.dumps(dacs, indent=2, cls=NpEncoder)))
+            except Exception as e:
+                logger.error(f'Error loading DACs ({dacs}): {e}')
+                entries.append(html.Div('Error loading dacs'))
 
         temperatures = logs.temperatures
         if temperatures is not None:
             try:
                 temp_dict = temperatures.asdict()
-                entries.append(dcc.Markdown(json.dumps(temp_dict, indent=2, cls=NpEncoder)))
+                # entries.append(dcc.Markdown(json.dumps(temp_dict, indent=2, cls=NpEncoder)))
+                entries.append(temps_to_component(temp_dict))
             except TypeError as e:
                 logger.error(f'TypeError when loading temperatures ({temperatures})\n'
                              f'Error: {e}')
+                entries.append(html.Div('Error loading temperatures'))
 
     return html.Div([entry for entry in entries])
 
